@@ -8,6 +8,7 @@ const { pipeline } = require('node:stream/promises');
 const { pathToFileURL } = require('node:url');
 const updateConfig = require('./update-config.json');
 const smokeTest = process.argv.includes('--smoke-test') || process.env.EVENT_FUTURES_SMOKE_TEST === '1';
+if (smokeTest) app.disableHardwareAcceleration();
 
 const PORT = 4174;
 const HOST = '127.0.0.1';
@@ -159,6 +160,14 @@ if (!singleInstance) {
       if (url.startsWith('https://')) shell.openExternal(url);
       return { action: 'deny' };
     });
+    if (smokeTest) {
+      mainWindow.webContents.on('console-message', (_event, level, message, line, sourceId) => {
+        console.log(`SMOKE_RENDERER level=${level} ${sourceId}:${line} ${message}`);
+      });
+      mainWindow.webContents.on('did-fail-load', (_event, code, description, validatedURL) => {
+        console.error(`SMOKE_LOAD_FAILED ${code} ${description} ${validatedURL}`);
+      });
+    }
     mainWindow.webContents.on('will-navigate', (event, targetUrl) => {
       try {
         if (new URL(targetUrl).origin !== appOrigin) event.preventDefault();

@@ -53,8 +53,21 @@ async function fetchMexcAssets(credentials) {
 function allowedBotSymbol(value) { return value === 'BTC_USDT' || value === 'RIVER_USDT'; }
 function allowedEventSymbol(value) { return eventMarkets.includes(value); }
 async function fetchMexcPublic(url) {
-  const response = await fetch(url, { signal:AbortSignal.timeout(8_000), headers:{ Accept:'application/json' } });
-  if (!response.ok) throw new Error('mexc_unavailable');
+  const parsed = new URL(url);
+  const bases = parsed.hostname === 'api.mexc.com' ? ['https://api.mexc.com', 'https://contract.mexc.com'] : [parsed.origin];
+  let response, lastError;
+  for (let index = 0; index < bases.length; index += 1) {
+    try {
+      response = await fetch(bases[index] + parsed.pathname + parsed.search, { signal:AbortSignal.timeout(6_000), headers:{ Accept:'application/json' } });
+      if (response.ok) break;
+      if (index + 1 >= bases.length || ![404, 500, 502, 503, 504].includes(response.status)) throw new Error('mexc_http_' + response.status);
+      await response.body?.cancel();
+    } catch (error) {
+      lastError = error;
+      if (index + 1 >= bases.length) throw error;
+    }
+  }
+  if (!response?.ok) throw lastError || new Error('mexc_unavailable');
   const body = await response.json();
   if (!body || body.success !== true) throw new Error('mexc_unavailable');
   return body.data;
@@ -244,6 +257,7 @@ export const server = http.createServer(async (req, res) => {
       let upstream;
       if(source==='spot'){upstream='https://data-api.binance.vision/api/v3/klines?symbol='+symbol.replace('_','')+'&interval='+tf+'&limit=120';}
       else{const mins=allowed[tf],interval=mins===1?'Min1':mins===5?'Min5':mins===15?'Min15':mins===60?'Min60':'Hour4',end=Math.floor(Date.now()/1000),start=end-mins*60*125;upstream='https://api.mexc.com/api/v1/contract/kline/index_price/'+encodeURIComponent(symbol)+'?interval='+interval+'&start='+start+'&end='+end;}
+      if(source==='index'){const parsed=new URL(upstream),bases=['https://api.mexc.com','https://contract.mexc.com'];let response,lastError;for(let i=0;i<bases.length;i+=1){try{response=await fetch(bases[i]+parsed.pathname+parsed.search,{signal:AbortSignal.timeout(6000),headers:{Accept:'application/json'}});if(response.ok)break;if(i+1>=bases.length||![404,500,502,503,504].includes(response.status))throw new Error('mexc_http_'+response.status);await response.body?.cancel();}catch(error){lastError=error;if(i+1>=bases.length)throw error;}}if(!response?.ok)throw lastError||new Error('mexc_unavailable');const data=await response.json();return apiReply(res,200,data);}
       const response=await fetch(upstream,{signal:AbortSignal.timeout(10000),headers:{'Accept':'application/json'}});if(!response.ok)throw new Error('upstream');const data=await response.json();return apiReply(res,200,data);
     }catch(error){const code=error?.cause?.code||error?.code||error?.name||'unknown';console.error('[market-candles] MEXC public endpoint failed:',code);return apiReply(res,502,{error:'Chandelles publiques momentanément indisponibles.',code});}
   }
