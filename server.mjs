@@ -44,6 +44,11 @@ async function fetchMexcAssets(credentials) {
     return { assets, checkedAt:Date.now(), latencyMs:Date.now() - started };
   } finally { clearTimeout(timer); }
 }
+export async function restoreMexcCredentials(credentials) {
+  if (!credentials || typeof credentials.key !== 'string' || typeof credentials.secret !== 'string' || !credentials.key || !credentials.secret) return false;
+  mexcCredentials = { key:credentials.key, secret:credentials.secret };
+  return true;
+}
 function printAccess() {
   console.log('Application locale (Windows) : http://localhost:' + port);
   if (host === '127.0.0.1' || host === '::1') return;

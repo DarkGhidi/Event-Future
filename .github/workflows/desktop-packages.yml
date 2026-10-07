@@ -3,6 +3,8 @@ name: Construire les installateurs de bureau
 on:
   workflow_dispatch:
   push:
+    branches:
+      - release/v1.0.1
     tags:
       - 'v*'
 
@@ -67,7 +69,7 @@ jobs:
           if-no-files-found: error
 
   release:
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/release/v1.0.1'
     needs: [windows, macos]
     runs-on: ubuntu-latest
     permissions:
@@ -79,13 +81,37 @@ jobs:
           path: installateurs
           pattern: event-futures-*
           merge-multiple: true
-      - name: Publier les fichiers sur la page des versions
+      - name: Joindre les installateurs à la version brouillon
         uses: softprops/action-gh-release@v2
         with:
+          draft: true
+          tag_name: v1.0.1
+          target_commitish: ${{ github.sha }}
           files: installateurs/*
+          overwrite_files: true
           body: |
-            ## Télécharger Event Futures
+            ## Event Futures 1.0.1
 
-            Choisissez l’installateur correspondant à votre ordinateur. Sur macOS, l’application doit être signée et notariée pour une ouverture directe sans avertissement Gatekeeper.
+            Cette version distingue une pré-alerte d’un GO confirmé et fournit une fenêtre d’action réglable. Les résultats déclarés par l’utilisateur sont séparés des estimations par index; une règle candidate est évaluée en ombre sans changer automatiquement le signal actif.
 
-            Les clés MEXC se configurent séparément sur chaque appareil et ne sont pas incluses dans ces fichiers.
+            L’application bureau peut mémoriser les clés API MEXC de lecture seule dans le coffre de Windows ou macOS. Ces clés ne sont pas incluses dans les installateurs. La mise à jour du bureau vérifie l’empreinte SHA-256 de l’installateur avant de l’ouvrir.
+
+            Choisissez l’installateur correspondant à votre ordinateur. Les versions macOS et Windows sont non signées dans cette configuration; macOS peut afficher un avertissement Gatekeeper et Windows un avertissement SmartScreen.
+
+      - name: Vérifier les trois installateurs et publier
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const tag = context.ref.startsWith('refs/tags/') ? context.ref.replace(/^refs\/tags\//, '') : 'v1.0.1';
+            const { owner, repo } = context.repo;
+            const releases = await github.rest.repos.listReleases({ owner, repo, per_page: 100 });
+            const release = releases.data.find(item => item.tag_name === tag && item.draft);
+            if (!release) throw new Error(`Brouillon introuvable pour ${tag}.`);
+            const required = [
+              `Event-Futures-Setup-${tag.replace(/^v/, '')}-x64.exe`,
+              `Event-Futures-${tag.replace(/^v/, '')}-arm64.dmg`,
+              `Event-Futures-${tag.replace(/^v/, '')}-x64.dmg`
+            ];
+            const missing = required.filter(name => !release.assets.some(asset => asset.name === name && asset.state === 'uploaded' && asset.size > 0 && asset.digest));
+            if (missing.length) throw new Error(`Publication suspendue; installateurs absents ou non vérifiés: ${missing.join(', ')}`);
+            await github.rest.repos.updateRelease({ owner, repo, release_id: release.id, draft: false });

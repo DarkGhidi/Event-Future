@@ -1,6 +1,6 @@
 {
   "name": "event-futures-desktop",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "description": "Application locale BTC/USDT Event Futures",
   "author": "Event/Lab",
@@ -36,6 +36,7 @@
       "sw.js",
       "README.md",
       "electron/main.cjs",
+      "electron/preload.cjs",
       "electron/update-config.json",
       "package.json"
     ],

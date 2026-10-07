@@ -1,5 +1,6 @@
-const { app, BrowserWindow, dialog, Menu, shell } = require('electron');
+const { app, BrowserWindow, dialog, Menu, shell, safeStorage, ipcMain } = require('electron');
 const fs = require('node:fs');
+const crypto = require('node:crypto');
 const https = require('node:https');
 const net = require('node:net');
 const path = require('node:path');
@@ -10,6 +11,7 @@ const updateConfig = require('./update-config.json');
 const PORT = 4174;
 const HOST = '127.0.0.1';
 const APP_URL = `http://${HOST}:${PORT}/`;
+const credentialsPath = () => path.join(app.getPath('userData'), 'mexc-credentials.secure');
 const singleInstance = app.requestSingleInstanceLock();
 
 if (!singleInstance) {
@@ -17,6 +19,52 @@ if (!singleInstance) {
 } else {
   let localServer;
   let mainWindow;
+  let credentialsSaved = false;
+
+  function allowedIpcSender(event) {
+    try { return new URL(event.senderFrame.url).origin === new URL(APP_URL).origin; } catch { return false; }
+  }
+  function registerCredentialIpc() {
+    ipcMain.handle('mexc-credentials:status', async event => {
+      if (!allowedIpcSender(event)) return { available:false, saved:false };
+      return { available:['win32','darwin'].includes(process.platform) && await safeStorage.isAsyncEncryptionAvailable(), saved:credentialsSaved };
+    });
+    ipcMain.handle('mexc-credentials:save', async (event, payload) => {
+      if (!allowedIpcSender(event)) return { saved:false };
+      const apiKey = typeof payload?.apiKey === 'string' ? payload.apiKey : '';
+      const apiSecret = typeof payload?.apiSecret === 'string' ? payload.apiSecret : '';
+      if (!apiKey || !apiSecret || apiKey.length > 256 || apiSecret.length > 256 || !['win32','darwin'].includes(process.platform) || !await safeStorage.isAsyncEncryptionAvailable()) return { saved:false };
+      try {
+        const encrypted = await safeStorage.encryptStringAsync(JSON.stringify({ key:apiKey, secret:apiSecret }));
+        const target = credentialsPath(), temporary = target + '.tmp';
+        await fs.promises.mkdir(path.dirname(target), { recursive:true });
+        await fs.promises.writeFile(temporary, encrypted, { mode:0o600 });
+        await fs.promises.rename(temporary, target);
+        credentialsSaved = true;
+        return { saved:true };
+      } catch { return { saved:false }; }
+    });
+    ipcMain.handle('mexc-credentials:clear', async event => {
+      if (!allowedIpcSender(event)) return { cleared:false };
+      try { await fs.promises.rm(credentialsPath(), { force:true }); credentialsSaved = false; return { cleared:true }; }
+      catch { return { cleared:false }; }
+    });
+  }
+  async function restoreCredentialFile(serverModule) {
+    const target = credentialsPath();
+    try {
+      const encrypted = await fs.promises.readFile(target);
+      if (!['win32','darwin'].includes(process.platform) || !await safeStorage.isAsyncEncryptionAvailable()) return;
+      let decrypted = await safeStorage.decryptStringAsync(encrypted);
+      if (decrypted.shouldReEncrypt) {
+        decrypted = await safeStorage.decryptStringAsync(encrypted);
+        const reEncrypted = await safeStorage.encryptStringAsync(decrypted.result);
+        await fs.promises.writeFile(target, reEncrypted, { mode:0o600 });
+      }
+      const credentials = JSON.parse(decrypted.result);
+      if (await serverModule.restoreMexcCredentials(credentials)) credentialsSaved = true;
+    } catch { /* Keep the encrypted file; a later manual reconnect can replace it. */ }
+  }
 
   app.on('second-instance', () => {
     if (mainWindow) {
@@ -57,6 +105,7 @@ if (!singleInstance) {
       autoHideMenuBar: true,
       title: 'Event Futures · BTC/USDT',
       webPreferences: {
+        preload: path.join(__dirname, 'preload.cjs'),
         contextIsolation: true,
         nodeIntegration: false,
         sandbox: true
@@ -93,7 +142,7 @@ if (!singleInstance) {
   function downloadFile(url, destination, redirects = 0) {
     return new Promise((resolve, reject) => {
       const parsed = new URL(url);
-      if (parsed.protocol !== 'https:' || redirects > 5) return reject(new Error('Adresse de téléchargement invalide.'));
+      if (parsed.protocol !== 'https:' || !['github.com','objects.githubusercontent.com','release-assets.githubusercontent.com'].includes(parsed.hostname) || redirects > 5) return reject(new Error('Adresse de téléchargement invalide.'));
       const request = https.get(parsed, { headers: { 'User-Agent': 'Event-Futures' } }, response => {
         if ([301, 302, 303, 307, 308].includes(response.statusCode) && response.headers.location) {
           response.resume();
@@ -129,7 +178,7 @@ if (!singleInstance) {
       const latestVersion = String(release.tag_name || '').replace(/^v/i, '');
       if (!latestVersion || compareVersions(latestVersion, app.getVersion()) <= 0) return;
 
-      const arch = process.arch === 'arm64' ? 'arm64' : 'x64';
+      const arch = process.platform === 'darwin' && process.arch === 'arm64' ? 'arm64' : 'x64';
       const assetName = process.platform === 'win32'
         ? `Event-Futures-Setup-${latestVersion}-${arch}.exe`
         : process.platform === 'darwin' ? `Event-Futures-${latestVersion}-${arch}.dmg` : null;
@@ -152,6 +201,9 @@ if (!singleInstance) {
       const destination = path.join(app.getPath('downloads'), safeName);
       try {
         await downloadFile(asset.browser_download_url, destination);
+        const expectedDigest = typeof asset.digest === 'string' && /^sha256:[a-f0-9]{64}$/i.test(asset.digest) ? asset.digest.slice(7).toLowerCase() : null;
+        const actualDigest = crypto.createHash('sha256').update(await fs.promises.readFile(destination)).digest('hex');
+        if (!expectedDigest || actualDigest !== expectedDigest || (asset.size && (await fs.promises.stat(destination)).size !== asset.size)) throw new Error('La vérification d’intégrité a échoué.');
         app.setProgressBar(-1);
         const openError = await shell.openPath(destination);
         if (openError) throw new Error(openError);
@@ -187,11 +239,13 @@ if (!singleInstance) {
       const serverPath = pathToFileURL(path.resolve(__dirname, '..', 'server.mjs')).href;
       const serverModule = await import(serverPath);
       localServer = serverModule.server;
+      registerCredentialIpc();
       await new Promise((resolve, reject) => {
         if (localServer.listening) return resolve();
         localServer.once('listening', resolve);
         localServer.once('error', reject);
       });
+      await restoreCredentialFile(serverModule);
       await waitForLocalApp();
       createWindow();
       setTimeout(checkForUpdates, 1_200);
