@@ -6,6 +6,10 @@ on:
     branches:
       - 'release/v*'
 
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
@@ -63,6 +67,7 @@ jobs:
       - name: Construire l’image disque macOS
         run: pnpm run dist:mac:${{ matrix.arch }}
       - name: Vérifier l’application dans l’image disque macOS
+        timeout-minutes: 4
         shell: bash
         run: |
           set -euo pipefail
