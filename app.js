@@ -668,6 +668,6 @@ window.__eventFuturesSmoke=async()=>{
 };
 setInterval(()=>{if($('perpBotView').hidden)loadCandles();}, 10_000); setInterval(()=>{if($('perpBotView').hidden&&(!clockSyncedAt||Date.now()-clockSyncedAt>60_000))syncClock();}, 15_000); setInterval(refreshWallet, 30_000); setInterval(()=>{if(!$('perpBotView').hidden){refreshBotMarket();refreshBotAccount();}},30_000);setInterval(pollMexcIndexFallback,2_500);setInterval(()=>{if(!$('perpBotView').hidden)refreshBotStatus();},2_000);setInterval(processScan, 250);
 setInterval(() => { renderPriceStatus(); decisionFreshness(); updateCountdown(); settleJournal(); }, 1_000);
-if ('serviceWorker' in navigator) window.addEventListener('load', () => {navigator.serviceWorker.addEventListener('controllerchange',()=>{const build='eventlab-worker-v6';if(sessionStorage.getItem('eventlab-worker-build')!==build){sessionStorage.setItem('eventlab-worker-build',build);location.reload();}});navigator.serviceWorker.register('./sw.js').then(registration=>registration.update()).catch(() => {});});
+if ('serviceWorker' in navigator && !new URLSearchParams(location.search).has('smoke')) window.addEventListener('load', () => {navigator.serviceWorker.addEventListener('controllerchange',()=>{const build='eventlab-worker-v6';if(sessionStorage.getItem('eventlab-worker-build')!==build){sessionStorage.setItem('eventlab-worker-build',build);location.reload();}});navigator.serviceWorker.register('./sw.js').then(registration=>registration.update()).catch(() => {});});
 
 
