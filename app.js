@@ -42,6 +42,17 @@ function ema(values, period) {
   for (let i = period; i < values.length; i++) value = values[i] * k + value * (1 - k);
   return value;
 }
+function atrValue(candles, period = 14) {
+  const closed=(candles||[]).filter(c=>Number.isFinite(Number(c.time))&&Number(c.time)+60_000<=Date.now());
+  if(closed.length<period+1)return null;
+  const ranges=[];
+  for(let i=1;i<closed.length;i++){
+    const current=closed[i],previous=closed[i-1];
+    ranges.push(Math.max(Number(current.high)-Number(current.low),Math.abs(Number(current.high)-Number(previous.close)),Math.abs(Number(current.low)-Number(previous.close))));
+  }
+  const recent=ranges.slice(-period);
+  return recent.length===period&&recent.every(Number.isFinite)?recent.reduce((sum,value)=>sum+value,0)/period:null;
+}
 function macd(values) {
   if (values.length < 35) return null;
   const fastK = 2 / 13, slowK = 2 / 27;
