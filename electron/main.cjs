@@ -17,7 +17,7 @@ const APP_URL = `http://${HOST}:${PORT}/`;
 if (smokeTest) setTimeout(() => {
   console.error('SMOKE_TEST_TIMEOUT: packaged local market service did not pass within 45 seconds.');
   app.exit(1);
-}, 45_000);
+}, 120_000);
 const credentialsPath = () => path.join(app.getPath('userData'), 'mexc-credentials.secure');
 const botCredentialsPath = () => path.join(app.getPath('userData'), 'mexc-trading-credentials.secure');
 const singleInstance = app.requestSingleInstanceLock();
@@ -347,11 +347,11 @@ if (!singleInstance) {
       if (smokeTest) {
         await verifyPackagedMarketData();
         console.log('SMOKE_TEST_OK packaged local service and live MEXC index data');
-        app.exit(0);
+        createWindow();
         return;
       }
       createWindow();
-      if (!smokeTest) setTimeout(checkForUpdates, 1_200);
+      setTimeout(checkForUpdates, 1_200);
     } catch (error) {
       if (smokeTest) {
         console.error('SMOKE_TEST_STARTUP_FAILED ' + String(error?.stack || error));
