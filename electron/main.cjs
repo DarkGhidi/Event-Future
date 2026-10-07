@@ -15,7 +15,7 @@ const PORT = 4174;
 const HOST = '127.0.0.1';
 const APP_URL = `http://${HOST}:${PORT}/`;
 if (smokeTest) setTimeout(() => {
-  console.error('SMOKE_TEST_TIMEOUT: packaged local market service did not pass within 45 seconds.');
+  console.error('SMOKE_TEST_TIMEOUT: packaged app renderer did not pass within 180 seconds.');
   app.exit(1);
 }, 180_000);
 const credentialsPath = () => path.join(app.getPath('userData'), 'mexc-credentials.secure');
@@ -175,7 +175,7 @@ if (!singleInstance) {
       height: 900,
       minWidth: 900,
       minHeight: 640,
-      show: false,
+      show: smokeTest,
       autoHideMenuBar: true,
       title: 'Event Futures · BTC/USDT',
       webPreferences: {
@@ -193,11 +193,15 @@ if (!singleInstance) {
       return { action: 'deny' };
     });
     if (smokeTest) {
+      mainWindow.webContents.on('dom-ready', () => console.log('SMOKE_DOM_READY'));
       mainWindow.webContents.on('console-message', (_event, level, message, line, sourceId) => {
         console.log(`SMOKE_RENDERER level=${level} ${sourceId}:${line} ${message}`);
       });
       mainWindow.webContents.on('did-fail-load', (_event, code, description, validatedURL) => {
         console.error(`SMOKE_LOAD_FAILED ${code} ${description} ${validatedURL}`);
+      });
+      mainWindow.webContents.on('render-process-gone', (_event, details) => {
+        console.error(`SMOKE_RENDERER_GONE ${details.reason} exit=${details.exitCode}`);
       });
     }
     mainWindow.webContents.on('will-navigate', (event, targetUrl) => {
@@ -220,7 +224,12 @@ if (!singleInstance) {
         app.exit(1);
       }
     });
-    mainWindow.loadURL(APP_URL);
+    mainWindow.loadURL(APP_URL).catch(error => {
+      if (smokeTest) {
+        console.error('SMOKE_LOAD_REJECTED ' + String(error?.message || error));
+        app.exit(1);
+      }
+    });
   }
 
   function compareVersions(left, right) {
