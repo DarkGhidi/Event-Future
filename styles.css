@@ -123,3 +123,5 @@ canvas{filter:drop-shadow(0 0 9px rgba(102,233,255,.09))}
 @media(prefers-reduced-motion:reduce){
   *,*::before,*::after{scroll-behavior:auto!important;animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}
 }
+
+.bot-power-status{margin:10px 0 0;color:var(--muted);font:11px var(--mono);display:flex;align-items:center;gap:8px}.bot-power-status::before{content:'';width:7px;height:7px;border-radius:50%;background:var(--v3-cyan);box-shadow:0 0 12px rgba(102,233,255,.45)}
