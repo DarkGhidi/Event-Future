@@ -1,13 +1,14 @@
-# Event Futures — Assistant local BTC/USDT
+# Event Futures — Analyse locale BTC/ETH et Futures
 
-**Suivez l’index BTC/USDT, recevez des alertes vocales en français et consignez vos positions MEXC Event Futures.** L’application observe les marchés et vous aide à décider; vous passez chaque ordre vous-même.
+**Choisissez BTC ou ETH sur l’index MEXC Event Futures, consignez vos positions, ou passez au bot MEXC Futures BTC/RIVER.** Chaque marché Event Futures garde ses propres prix, chandelles et indicateurs. Les ordres Event Futures restent manuels; le bot perpétuels peut passer de vrais ordres après configuration locale et confirmation explicite.
 
 [Télécharger les installateurs Windows et macOS](https://github.com/DarkGhidi/Event-Future/releases/latest)
 
 ### En bref
 
-- Graphique et indicateurs fondés sur l’index MEXC, avec confirmation du marché au comptant Binance.
-- Pré-alerte puis GO confirmé, avec une courte fenêtre d’action réglable; aucun ordre n’est exécuté par l’application.
+- Graphique, prix et indicateurs fondés sur l’index MEXC; les chandelles du marché au comptant Binance servent seulement de confirmation facultative.
+- Marchés crypto BTC/USDT et ETH/USDT vérifiés depuis le sélecteur Event Futures officiel le 7 octobre 2026. Les autres marchés visibles à cette date sont des actions. La configuration se trouve dans `event-markets.json`; en l’absence d’API catalogue documentée, vérifiez le sélecteur MEXC avant de modifier cette liste.
+- Pré-alerte puis GO confirmé, avec une courte fenêtre d’action réglable; les positions Event Futures restent manuelles.
 - Journal local des positions et consultation facultative du solde MEXC en lecture seule.
 - Les clés API restent sur votre appareil et ne sont jamais incluses dans le code ou les installateurs.
 
@@ -27,7 +28,7 @@ L’application web progressive (PWA) reste disponible sur `http://localhost:417
 
 Depuis Windows, installer les dépendances avec `pnpm install`, puis créer l’installateur français avec `pnpm run dist:win`. Le fichier `.exe` apparaît dans `release/`. Sur macOS, `pnpm run dist:mac:arm64` crée l’image `.dmg` Apple Silicon et `pnpm run dist:mac:x64` celle des Mac Intel.
 
-GitHub Releases peut servir de page unique de téléchargement pour vos amis. Le flux GitHub Actions défini dans `.github/workflows/desktop-packages.yml` construit l’installateur Windows et les deux images macOS. Un lancement manuel conserve les fichiers comme artefacts de compilation; une étiquette de version telle que `v1.0.1` publie aussi une page de version avec les fichiers joints. Pour préparer une version, mettre à jour la version dans `package.json`, créer l’étiquette Git correspondante et la pousser. Pour l’utiliser, placer ce dossier à la racine d’un dépôt GitHub. Les images macOS sont compilées sur des machines macOS; cet environnement Windows ne peut pas produire le `.dmg` localement.
+GitHub Releases sert de page de téléchargement. Le flux GitHub Actions défini dans `.github/workflows/desktop-packages.yml` construit l’installateur Windows et les images macOS arm64 et Intel, puis teste l’application empaquetée sur chaque système. Le lancement manuel conserve les fichiers comme artefacts; une étiquette de version publie la release uniquement après réussite des trois builds, des tests de démarrage et de la vérification des trois installateurs. La version 2.0.0 cible le dépôt public [DarkGhidi/Event-Future](https://github.com/DarkGhidi/Event-Future). Les images macOS sont compilées et testées sur des machines macOS; cet environnement Windows ne peut pas produire le `.dmg` localement.
 
 Au lancement, l’application de bureau vérifie la dernière version publiée et affiche « Mise à jour disponible — Télécharger la mise à jour » si une version plus récente existe. Après confirmation, elle télécharge l’installateur correspondant, vérifie sa taille et son empreinte SHA-256 publiée par GitHub, puis l’ouvre. Windows lance l’installateur; sur macOS, ouvrez l’image disque et glissez la nouvelle application dans Applications. La vérification consulte uniquement les versions publiques GitHub et n’envoie aucune clé MEXC.
 
@@ -39,9 +40,10 @@ Les compilations macOS de ce flux sont non signées. La signature et la notarisa
 
 ## Prix et signaux
 
-- Le prix affiché et les niveaux de référence viennent du flux public WebSocket d’index MEXC Futures BTC_USDT (`wss://contract.mexc.com/edge`, canal `sub.index.price`). Les chandelles d’index MEXC alimentent les EMA, MACD, bandes de Bollinger, Fibonacci, structure et la projection à 10 minutes.
-- Binance au comptant fournit les chandelles du graphique et le volume. L’écart entre l’index MEXC et le marché au comptant Binance est surveillé; un écart notable bloque le signal.
-- Le flux MEXC doit rester frais (15 s maximum), tout comme le flux spot Binance et les chandelles. Si une source est périmée, l’app affiche « Données périmées · Pas d’entrée » et suspend les alertes.
+- Le prix affiché et les niveaux de référence viennent du flux public WebSocket d’index MEXC Futures du marché sélectionné (`BTC_USDT` ou `ETH_USDT`, canal `sub.index.price`). Les chandelles d’index MEXC alimentent le graphique, les EMA, MACD, bandes de Bollinger, Fibonacci, structure et la projection à 10 minutes. Le scanner surveille le marché sélectionné; changer de marché arrête le scanner pour éviter de reporter un signal d’un actif à l’autre.
+- Binance au comptant apporte une comparaison facultative et des repères de volume lorsque son flux est disponible. L’absence de Binance n’empêche pas le suivi de l’index MEXC; un écart supérieur au seuil configuré bloque le signal.
+- Le flux d’index MEXC doit rester frais (15 s maximum) et toutes les séries de chandelles MEXC utilisées doivent avoir été actualisées dans les 90 s. Si une série manque ou est périmée, l’app suspend les signaux. Les chandelles d’index ne fournissent pas de volume exploitable dans cette intégration.
+- Les zones de support/résistance sont des estimations issues de pivots sur chandelles clôturées, confirmés par deux chandelles de chaque côté; leur proximité multi-horizons est indicative et ne garantit pas un niveau de réaction.
 - L’indication d’achat ou de vente est une estimation directionnelle incertaine fondée sur des signaux techniques et une projection de pente récente sur 10 minutes. Le seuil affiché est une zone d’alerte construite depuis la structure récente de l’index. Ce n’est ni un ordre limite ni une garantie. Le prix d’entrée réel est fixé par MEXC au passage de l’ordre.
 - La zone d’invalidation demande d’annuler le signal si l’index franchit le repère opposé, si les conditions changent ou si les données périment. Les conditions sont réévaluées en continu.
 
@@ -63,6 +65,12 @@ Le connecteur facultatif demande une API Key et un Secret Key dans le formulaire
 
 MEXC indique que les ordres Event Futures ne sont pas disponibles via API. Le solde wallet ne prouve pas qu’un ordre Event Futures a été pris ni son résultat.
 
+## Onglet Bot perpétuels · aperçu V2
+
+Un onglet distinct affiche un seul contrat MEXC perpétuel USDT à la fois (BTC_USDT ou RIVER_USDT), son graphique 1 minute et, à la demande, MACD et Fibonacci. Les tailles et limites de contrat sont relues sur MEXC; une donnée absente ou périmée bloque l’indication de limite. Les champs budget, part de marge et levier calculent la marge et le notionnel estimés. Avant une entrée, le bot exige un croisement MACD sur chandelle 1 minute clôturée, aligné avec les tendances EMA 5 et 15 minutes; il bloque aussi si l’ATR est hors plage, si le volume 1 minute est inférieur à 65 % de sa moyenne des 20 dernières chandelles, si le marché manque de volume ou de liquidité, si le funding est hors limite, ou si un pivot de support/résistance opposé est trop proche.
+
+La connexion vérifie le compte et les positions en lecture; l’application chiffre la clé séparément avec le coffre du système dans l’application de bureau. Après configuration locale et confirmation explicite, le bot peut envoyer de vrais ordres Futures : croisement MACD 1 min confirmé par la tendance 5 et 15 min, SL initial à 1,5 ATR, TP à 3 ATR et suivi du stop après un mouvement favorable de 1,5 ATR. L’application vérifie la position et les protections conditionnelles côté MEXC, bloque les nouvelles entrées si elles ne sont pas confirmées et tente une clôture vérifiée. L’arrêt normal cesse les nouvelles entrées et laisse les protections confirmées chez MEXC; l’arrêt d’urgence tente une clôture immédiate. Le stop suiveur est recalculé par l’application, qui doit rester connectée pour le déplacer. Il n’y a pas de mode de simulation ni de bac à sable Futures MEXC; ne configurez que des fonds que vous acceptez de risquer.
+
 ## Références officielles
 
 - [MEXC Futures WebSocket — canal Index Price](https://mexcdevelop.github.io/apidocs/contract_v1_en/)
@@ -71,4 +79,7 @@ MEXC indique que les ordres Event Futures ne sont pas disponibles via API. Le so
 - [MEXC — aide Event Futures](https://www.mexc.com/support/futures-trading/event-futures)
 - [MEXC — guide Event Futures](https://www.mexc.com/support/article/how-to-use-event-futures-on-mexc-a-simple-and-accessible-futures-trading-method-395277582692768768)
 - [MEXC Futures API — actifs du compte](https://www.mexc.io/api-docs/futures/account-and-trading-endpoints/get-all-account-assets)
+- [MEXC Futures API — contrats](https://www.mexc.io/api-docs/futures/market-endpoints/get-contract-information)
+- [MEXC Futures API — chandelles de contrat](https://www.mexc.io/api-docs/futures/market-endpoints/get-contract-kline-data)
+- [MEXC Futures API — positions ouvertes](https://www.mexc.io/api-docs/futures/account-and-trading-endpoints/get-open-positions)
 - [Binance Spot — flux de transactions](https://github.com/binance/binance-spot-api-docs/blob/master/web-socket-streams.md#trade-streams)

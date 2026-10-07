@@ -1,11 +1,11 @@
 {
-  "name": "Event Futures · BTC/USDT",
+  "name": "Event Futures · BTC et ETH",
   "short_name": "Event Lab",
-  "description": "Analyse et journal personnel de MEXC Event Futures BTC/USDT",
+  "description": "Analyse et journal personnel de MEXC Event Futures BTC et ETH",
   "lang": "fr",
   "start_url": ".",
   "display": "standalone",
-  "background_color": "#08111e",
-  "theme_color": "#08111e",
+  "background_color": "#111513",
+  "theme_color": "#111513",
   "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
 }

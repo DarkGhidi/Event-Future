@@ -7,11 +7,13 @@ const path = require('node:path');
 const { pipeline } = require('node:stream/promises');
 const { pathToFileURL } = require('node:url');
 const updateConfig = require('./update-config.json');
+const smokeTest = process.argv.includes('--smoke-test');
 
 const PORT = 4174;
 const HOST = '127.0.0.1';
 const APP_URL = `http://${HOST}:${PORT}/`;
 const credentialsPath = () => path.join(app.getPath('userData'), 'mexc-credentials.secure');
+const botCredentialsPath = () => path.join(app.getPath('userData'), 'mexc-trading-credentials.secure');
 const singleInstance = app.requestSingleInstanceLock();
 
 if (!singleInstance) {
@@ -20,6 +22,7 @@ if (!singleInstance) {
   let localServer;
   let mainWindow;
   let credentialsSaved = false;
+  let botCredentialsSaved = false;
 
   function allowedIpcSender(event) {
     try { return new URL(event.senderFrame.url).origin === new URL(APP_URL).origin; } catch { return false; }
@@ -49,6 +52,30 @@ if (!singleInstance) {
       try { await fs.promises.rm(credentialsPath(), { force:true }); credentialsSaved = false; return { cleared:true }; }
       catch { return { cleared:false }; }
     });
+    ipcMain.handle('mexc-bot-credentials:status', async event => {
+      if (!allowedIpcSender(event)) return { available:false, saved:false };
+      return { available:['win32','darwin'].includes(process.platform) && await safeStorage.isAsyncEncryptionAvailable(), saved:botCredentialsSaved };
+    });
+    ipcMain.handle('mexc-bot-credentials:save', async (event, payload) => {
+      if (!allowedIpcSender(event)) return { saved:false };
+      const apiKey = typeof payload?.apiKey === 'string' ? payload.apiKey : '';
+      const apiSecret = typeof payload?.apiSecret === 'string' ? payload.apiSecret : '';
+      if (!apiKey || !apiSecret || apiKey.length > 256 || apiSecret.length > 256 || !['win32','darwin'].includes(process.platform) || !await safeStorage.isAsyncEncryptionAvailable()) return { saved:false };
+      try {
+        const encrypted = await safeStorage.encryptStringAsync(JSON.stringify({ key:apiKey, secret:apiSecret }));
+        const target = botCredentialsPath(), temporary = target + '.tmp';
+        await fs.promises.mkdir(path.dirname(target), { recursive:true });
+        await fs.promises.writeFile(temporary, encrypted, { mode:0o600 });
+        await fs.promises.rename(temporary, target);
+        botCredentialsSaved = true;
+        return { saved:true };
+      } catch { return { saved:false }; }
+    });
+    ipcMain.handle('mexc-bot-credentials:clear', async event => {
+      if (!allowedIpcSender(event)) return { cleared:false };
+      try { await fs.promises.rm(botCredentialsPath(), { force:true }); botCredentialsSaved = false; return { cleared:true }; }
+      catch { return { cleared:false }; }
+    });
   }
   async function restoreCredentialFile(serverModule) {
     const target = credentialsPath();
@@ -63,6 +90,16 @@ if (!singleInstance) {
       }
       const credentials = JSON.parse(decrypted.result);
       if (await serverModule.restoreMexcCredentials(credentials)) credentialsSaved = true;
+    } catch { /* Keep the encrypted file; a later manual reconnect can replace it. */ }
+  }
+  async function restoreBotCredentialFile(serverModule) {
+    const target = botCredentialsPath();
+    try {
+      const encrypted = await fs.promises.readFile(target);
+      if (!['win32','darwin'].includes(process.platform) || !await safeStorage.isAsyncEncryptionAvailable()) return;
+      const decrypted = await safeStorage.decryptStringAsync(encrypted);
+      const credentials = JSON.parse(decrypted.result);
+      if (await serverModule.restoreBotCredentials(credentials)) botCredentialsSaved = true;
     } catch { /* Keep the encrypted file; a later manual reconnect can replace it. */ }
   }
 
@@ -124,8 +161,19 @@ if (!singleInstance) {
         event.preventDefault();
       }
     });
-    mainWindow.once('ready-to-show', () => mainWindow.show());
+    mainWindow.once('ready-to-show', () => { if (!smokeTest) mainWindow.show(); });
     mainWindow.on('closed', () => { mainWindow = null; });
+    if (smokeTest) mainWindow.webContents.once('did-finish-load', async () => {
+      try {
+        const result = await mainWindow.webContents.executeJavaScript('window.__eventFuturesSmoke()');
+        if (!result?.ok) throw new Error('Le test de démarrage local a échoué.');
+        console.log('SMOKE_TEST_OK ' + JSON.stringify(result));
+        app.exit(0);
+      } catch (error) {
+        console.error('SMOKE_TEST_FAILED ' + String(error?.message || error));
+        app.exit(1);
+      }
+    });
     mainWindow.loadURL(APP_URL);
   }
 
@@ -236,6 +284,7 @@ if (!singleInstance) {
       await assertPortAvailable();
       process.env.PORT = String(PORT);
       process.env.HOST = HOST;
+      process.env.EVENT_FUTURES_DESKTOP = '1';
       const serverPath = pathToFileURL(path.resolve(__dirname, '..', 'server.mjs')).href;
       const serverModule = await import(serverPath);
       localServer = serverModule.server;
@@ -246,9 +295,10 @@ if (!singleInstance) {
         localServer.once('error', reject);
       });
       await restoreCredentialFile(serverModule);
+      await restoreBotCredentialFile(serverModule);
       await waitForLocalApp();
       createWindow();
-      setTimeout(checkForUpdates, 1_200);
+      if (!smokeTest) setTimeout(checkForUpdates, 1_200);
     } catch (error) {
       dialog.showErrorBox('Event Futures ne peut pas démarrer', 'Le serveur local n’a pas pu démarrer. Fermez les autres instances et réessayez.');
       app.quit();

@@ -4,26 +4,31 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#08111e">
-  <meta name="description" content="Analyse et journal local de positions MEXC Event Futures BTC/USDT passées manuellement.">
+  <meta name="description" content="Analyse locale des marchés crypto MEXC Event Futures BTC et ETH.">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="styles.css">
-  <title>Event Futures · BTC/USDT</title>
+  <title>Event Futures · BTC / USDT</title>
 </head>
 <body>
   <div class="shell">
     <header class="topbar">
       <a class="brand" href="#top" aria-label="Event Futures, accueil"><span class="brand-mark">E</span><span>EVENT<span class="brand-light">/LAB</span></span></a>
-      <div class="top-actions"><span class="market-pill"><i></i> BTC / USDT</span><button id="installButton" class="button subtle hidden">Installer</button><button id="refreshButton" class="icon-button" title="Actualiser" aria-label="Actualiser">↻</button></div>
+      <nav class="main-tabs" role="tablist" aria-label="Sections de l’application">
+        <button id="eventFuturesTab" class="main-tab active" role="tab" aria-selected="true" aria-controls="top">Event Futures</button>
+        <button id="perpetualBotTab" class="main-tab" role="tab" aria-selected="false" aria-controls="perpBotView" tabindex="-1">Bot perpétuels</button>
+      </nav>
+      <div class="top-actions"><span id="headerMarketPill" class="market-pill"><i></i> BTC / USDT</span><button id="installButton" class="button subtle hidden">Installer</button><button id="refreshButton" class="icon-button" title="Actualiser" aria-label="Actualiser">↻</button></div>
     </header>
 
-    <main id="top">
+    <main id="top" role="tabpanel" aria-labelledby="eventFuturesTab">
+      <div class="market-selector"><div><span class="eyebrow">MARCHÉS CRYPTO · INDEX MEXC</span><span id="marketConfigNote" class="market-config-note">Chargement du catalogue de marchés…</span></div><nav id="eventMarketTabs" class="event-market-tabs" role="tablist" aria-label="Marchés Event Futures"></nav></div>
       <section class="hero-grid">
         <div class="hero-copy">
           <div class="eyebrow"><span id="connectionState" class="connection"><i></i> Connexion…</span></div>
-          <h1>BTC / USDT</h1>
-          <div class="price-row"><div><span class="micro-label">BTC / USDT</span><div id="lastPrice" class="price">—</div></div><div id="priceChange" class="change">—</div></div>
-          <div class="updated-row"><span id="sourceLabel">En attente des données de marché</span><span id="updatedAt">—</span></div><div class="freshness-note" id="freshnessNote">Index MEXC ≤ 15 s · Binance au comptant ≤ 15 s · chandelles ≤ 90 s</div>
+          <h1 id="eventMarketHeading">BTC / USDT</h1>
+          <div class="price-row"><div><span id="eventMarketMicro" class="micro-label">BTC / USDT</span><div id="lastPrice" class="price">—</div></div><div id="priceChange" class="change">—</div></div>
+          <div class="updated-row"><span id="sourceLabel">En attente des données de marché</span><span id="updatedAt">—</span></div><div class="freshness-note" id="freshnessNote">Index MEXC ≤ 15 s · chandelles de l’index ≤ 90 s · prix au comptant facultatif</div>
         </div>
         <div class="signal-card" id="signalCard">
           <div class="card-top"><span class="micro-label">DÉCISION</span><span class="live-tag"><i></i> INDICATIF</span></div>
@@ -38,7 +43,8 @@
 
 
 
-      <section class="chart-card" aria-label="Graphique BTC/USDT 1 minute"><div class="chart-head"><div><div class="micro-label">BTC/USDT · 1 MINUTE</div><strong>Binance au comptant · chandelles et bandes</strong></div><span class="chart-caption">60 dernières chandelles</span></div><canvas id="priceChart" height="220" aria-label="Chandelles 1 min avec bandes de Bollinger"></canvas></section>
+      <section id="eventChartCard" class="chart-card" aria-label="Graphique 1 minute"><div class="chart-head"><div><div id="eventChartPair" class="micro-label">BTC/USDT · 1 MINUTE</div><strong>Indice MEXC · chandelles et bandes</strong></div><span class="chart-caption">60 dernières chandelles</span></div><canvas id="priceChart" height="220" aria-label="Chandelles de l’indice MEXC sur 1 minute avec bandes de Bollinger"></canvas></section>
+      <details class="market-structure"><summary>Structure de marché · support et résistance</summary><div class="structure-grid"><div><span>Support le plus proche</span><strong id="event-support">En attente des chandelles MEXC</strong></div><div><span>Résistance la plus proche</span><strong id="event-resistance">En attente des chandelles MEXC</strong></div><p>Zones estimées à partir de pivots confirmés (2 chandelles de part et d’autre) sur 1 min à 4 h. Les chandelles de l’indice MEXC ne fournissent pas de volume exploitable ici; liquidité non mesurée.</p></div></details>
 
       <section class="market-strip" aria-label="Indicateurs utiles">
         <div class="strip-cell"><span class="micro-label">TENDANCE · 1 MIN À 4 H</span><div id="trendSummary" class="strip-value">—</div></div>
@@ -57,7 +63,7 @@
             <article class="factor"><span class="factor-icon">▥</span><div><strong>Volume & volatilité</strong><p>Comparaison au volume récent et à l’amplitude moyenne.</p></div><span class="factor-state muted">—</span></article>
             <article class="factor"><span class="factor-icon">⌗</span><div><strong>Structure & niveaux</strong><p>Lecture des derniers sommets, creux et niveaux proches.</p></div><span class="factor-state muted">—</span></article>
           </div>
-          <aside class="levels-card"><div class="card-top"><span class="micro-label">REPÈRES DE PRIX · 4 H</span><span class="tiny-tag">INDICATIFS</span></div><div class="level-line"><span>Sommet récent</span><strong id="levelHigh">—</strong></div><div class="level-line"><span>Prix actuel</span><strong id="levelCurrent">—</strong></div><div class="level-line"><span>Creux récent</span><strong id="levelLow">—</strong></div><div class="fib-block"><div class="fib-title"><span>Retraçage Fibonacci</span><span>dernier swing</span></div><div class="fib-row"><span>38,2 %</span><strong id="fib382">—</strong></div><div class="fib-row"><span>50,0 %</span><strong id="fib500">—</strong></div><div class="fib-row"><span>61,8 %</span><strong id="fib618">—</strong></div></div><p class="quiet-note">Ces repères viennent des chandelles BTC/USDT publiques et peuvent différer de l’indice MEXC utilisé au règlement.</p></aside>
+          <aside class="levels-card"><div class="card-top"><span class="micro-label">REPÈRES DE PRIX · 4 H</span><span class="tiny-tag">INDICATIFS</span></div><div class="level-line"><span>Sommet récent</span><strong id="levelHigh">—</strong></div><div class="level-line"><span>Prix actuel</span><strong id="levelCurrent">—</strong></div><div class="level-line"><span>Creux récent</span><strong id="levelLow">—</strong></div><div class="fib-block"><div class="fib-title"><span>Retraçage Fibonacci</span><span>dernier swing</span></div><div class="fib-row"><span>38,2 %</span><strong id="fib382">—</strong></div><div class="fib-row"><span>50,0 %</span><strong id="fib500">—</strong></div><div class="fib-row"><span>61,8 %</span><strong id="fib618">—</strong></div></div><p class="quiet-note">Ces repères utilisent les chandelles de l’index MEXC du marché sélectionné.</p></aside>
         </div>
         <div id="contradictions" class="contradictions hidden"></div>
       </section>
@@ -78,9 +84,63 @@
 
       <section class="footnote"><span class="footnote-mark">i</span><p><strong>Outil d’observation, pas un conseil financier.</strong> Les signaux et seuils utilisent l’index MEXC; le prix réel d’entrée et le règlement restent fixés par MEXC. Les chandelles et volumes Binance au comptant sont des confirmations, pas le prix de règlement. Les données peuvent être retardées ou indisponibles. Les indicateurs ne prédisent pas l’échéance et aucune probabilité de gain n’est garantie. Le système peut s’abstenir. Aucun ordre n’est passé par l’application.</p></section>
     </main>
-    <footer><span>EVENT/LAB <span class="footer-muted">· Usage personnel · Données locales</span></span><span>BTC/USDT · Event Futures 10 min</span></footer>
+    <main id="perpBotView" class="perp-bot-view hidden" role="tabpanel" aria-labelledby="perpetualBotTab" hidden>
+      <section class="bot-intro">
+        <div>
+          <div class="eyebrow">MEXC · PERPÉTUELS USDT-M</div>
+          <h1>Bot de trading</h1>
+          <p class="intro">BTC_USDT et RIVER_USDT. Ce panneau reste séparé de l’analyse Event Futures.</p>
+        </div>
+        <div class="bot-status-pill stopped" id="botStatusPill" role="status" aria-live="polite"><i></i><span id="botStatusText">Bot arrêté · clé absente</span></div>
+      </section>
+
+      <section class="bot-safety-banner" aria-live="polite">
+        <strong>Tout ordre sera réel et envoyé directement à MEXC.</strong>
+        <span>Aucun ordre avant votre démarrage explicite dans l’application. L’arrêt d’urgence tente de clôturer la position suivie; les protections déjà confirmées restent sur MEXC.</span>
+      </section>
+
+      <section class="bot-primary-card">
+        <div class="bot-primary-status"><span id="botConnectionLabel">Hors connexion</span><span id="botOrderState">Aucun ordre</span></div>
+        <div class="bot-settings-grid">
+          <label>Contrat<select id="botPairSelect" class="bot-select"><option value="BTC_USDT">BTC_USDT</option><option value="RIVER_USDT">RIVER_USDT</option></select></label>
+          <label>Budget affecté<input id="botAllocatedBudget" class="bot-number" type="number" min="0" step="1" value="200"><small>USDT</small></label>
+          <label>Marge par trade<input id="botMarginShare" class="bot-range" type="range" min="0" max="100" step="1" value="45"><strong id="botMarginShareValue">45 %</strong></label>
+          <label>Levier<input id="botLeverage" class="bot-range" type="range" min="1" max="100000" step="1" value="30"><strong id="botLeverageValue">30×</strong></label>
+        </div>
+        <div class="bot-exposure-inline"><span id="botMarginResult">90 USDT de marge / trade</span><strong id="botNotionalResult">2 700 USDT de notionnel estimé</strong></div>
+        <div class="bot-exit-inline"><span>SL / TP dynamique</span><strong id="botExitState">ATR 1,5× SL · 3× TP · suivi après +1,5× ATR</strong></div>
+        <div class="bot-limit-result" id="botLimitResult">Vérification des limites MEXC…</div>
+        <div class="bot-control-panel" aria-label="Commandes du bot">
+          <button id="botEmergencyStop" class="button emergency-button" type="button">Arrêt d’urgence</button>
+          <button id="botStopButton" class="button subtle hidden" type="button">Arrêter</button>
+          <button id="botStartButton" class="button primary" type="button" disabled>Démarrer le bot</button>
+        </div>
+      </section>
+
+      <section class="bot-chart-card" aria-label="Graphique du contrat sélectionné">
+        <div class="bot-chart-head"><div><strong id="botChartTitle">BTC_USDT · MEXC Perpétuel</strong><span>1 minute · données publiques MEXC</span></div><strong id="botPriceValue">—</strong></div>
+        <canvas id="botPriceChart" height="145" aria-label="Graphique des chandelles du contrat choisi"></canvas>
+        <details class="bot-indicators"><summary>Structure et contexte du contrat</summary><div class="bot-indicator-grid"><div><span>MACD (12, 26, 9)</span><strong id="botMacdValue">—</strong></div><div><span>Support estimé · pivots confirmés</span><strong id="botSupport">—</strong></div><div><span>Résistance estimée · pivots confirmés</span><strong id="botResistance">—</strong></div><div><span>ATR 14 · volatilité 1 min</span><strong id="botAtr">—</strong></div><div><span>Volume 24 h · MEXC</span><strong id="botVolume24">—</strong></div><div><span>Montant 24 h · MEXC</span><strong id="botAmount24">—</strong></div><div><span>Positions ouvertes · holdVol</span><strong id="botOpenInterest">—</strong></div><div><span>Funding · perpétuels uniquement</span><strong id="botFunding">—</strong></div><div><span>Fibonacci 38,2 %</span><strong id="botFib382">—</strong></div><div><span>Fibonacci 50 %</span><strong id="botFib500">—</strong></div><div><span>Fibonacci 61,8 %</span><strong id="botFib618">—</strong></div></div><p class="structure-note">Entrée uniquement après MACD 1 min + tendance 5/15 min. Filtres bloquants : contexte de volume 1 min et 24 h, volume négocié, open interest, financement, ATR dans la plage admise et absence d’un pivot opposé à moins de 0,75 ATR. Si une donnée manque, aucun ordre. Les zones sont estimées à partir de pivots clôturés.</p></details>
+      </section>
+
+      <details class="bot-advanced">
+        <summary>Connexion, limites et sécurité</summary>
+        <div class="bot-advanced-content">
+          <div class="bot-advanced-row"><div><strong>Clé MEXC · accès bot</strong><p id="botAccountStatus">Aucune clé MEXC configurée</p><p id="botAccountDetails">La connexion lit le compte et les positions. La clé est enregistrée uniquement après vérification et chiffrement local.</p><div id="botAccountSummary" class="bot-account-summary hidden"></div></div><div class="bot-account-actions"><button id="botConnectButton" class="button secondary">Configurer localement</button><button id="botDisconnectButton" class="button subtle hidden">Déconnecter</button></div></div>
+          <div class="bot-contract-card"><div class="bot-contract-state" id="botContractState">Vérification des règles publiques…</div><div class="bot-contract-facts" id="botContractFacts"><div><span>Prix MEXC</span><strong>—</strong></div><div><span>Levier maximum</span><strong>—</strong></div><div><span>Pas de prix</span><strong>—</strong></div><div><span>Taille du contrat</span><strong>—</strong></div></div><span id="botContractFreshness" class="bot-freshness">Données non chargées</span></div>
+          <label class="bot-wallet-label" for="botWalletBudget">Solde de référence<input id="botWalletBudget" class="bot-number" type="number" min="0" step="1" value="500"><small>USDT · 500 affectés au portefeuille, 200 au bot, 45 % soit 90 de marge, ×30 soit 2 700 de notionnel.</small></label>
+          <details class="bot-indicators bot-key-guide"><summary>Créer la clé sur MEXC</summary><ol><li>Sur MEXC, ouvrez la gestion des API et créez une clé dédiée à cette application.</li><li>Complétez le KYC Futures et la validation de sécurité/2FA demandée directement par MEXC.</li><li>Autorisez la lecture du compte, la lecture des ordres et positions, ainsi que « Order Placing » pour les contrats Futures.</li><li>Laissez désactivés retrait, transfert et toute autre permission sans rapport avec Futures.</li><li>La liaison IP est facultative : activez-la seulement si vous connaissez une adresse IP publique stable utilisée par cet ordinateur; une IP changeante peut bloquer l’accès.</li><li>Copiez la clé et le secret une seule fois dans la fenêtre locale de l’application, jamais dans le chat.</li></ol><p>La connexion vérifie la lecture du compte et des positions. MEXC ne fournit pas de bac à sable Futures; aucun ordre d’essai ne sera envoyé pour tester la permission d’écriture.</p></details>
+          <div class="bot-advanced-note"><p>Une position doit avoir un SL et un TP confirmés côté MEXC. Si la protection échoue après ouverture, la politique doit tenter une clôture vérifiée, puis demander une intervention manuelle en cas d’échec. Les ordres conditionnels restent sur MEXC si l’application s’arrête; les ajustements dynamiques exigent une connexion active. Un stop ne garantit pas un prix de sortie et n’empêche pas les gaps ou la liquidation.</p></div>
+          <label class="check-row bot-live-consent"><input id="botLiveConsent" type="checkbox"><span>Je comprends que le bot peut envoyer des ordres réels et entraîner une perte. Je confirme explicitement le démarrage à chaque session.</span></label>
+        </div>
+      </details>
+      <p class="bot-footnote">V2 · BTC_USDT & RIVER_USDT · futures USDT-M uniquement</p>
+    </main>
+    <footer><span>EVENT/LAB <span class="footer-muted">· Usage personnel · Données locales</span></span><span id="mainFooterText">BTC/USDT · Event Futures 10 min</span></footer>
   </div>
   <div id="walletDialog" class="dialog-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="walletDialogTitle"><form id="walletForm" class="dialog-card"><button id="walletDialogClose" type="button" class="dialog-close" aria-label="Fermer">×</button><div class="eyebrow">MEXC · LECTURE SEULE</div><h2 id="walletDialogTitle">Connecter le portefeuille</h2><p>Créez une clé avec la seule permission « View Account Details » (« Consulter les détails du compte »). Désactivez les permissions de négociation et de retrait; liez-la à votre adresse IP si MEXC le permet. Dans l’app bureau, les clés sont conservées chiffrées par le système; la PWA les garde uniquement en mémoire de session.</p><label for="apiKeyInput">Clé API</label><input id="apiKeyInput" autocomplete="off" spellcheck="false" required><label for="apiSecretInput">Clé secrète</label><input id="apiSecretInput" type="password" autocomplete="new-password" required><div id="walletFormError" class="form-error" role="alert"></div><button id="walletSubmit" class="button primary" type="submit">Vérifier et connecter</button></form></div>
+
+  <div id="botKeyDialog" class="dialog-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="botKeyDialogTitle"><form id="botKeyForm" class="dialog-card"><button id="botKeyDialogClose" type="button" class="dialog-close" aria-label="Fermer">×</button><div class="eyebrow">MEXC · FUTURES · DESKTOP</div><h2 id="botKeyDialogTitle">Vérifier une clé locale</h2><p>La connexion vérifie uniquement la lecture du compte et des positions. Pour démarrer le bot, la clé doit aussi avoir « Order Placing » pour les contrats Futures. N’autorisez ni retrait ni transfert. La clé est ensuite chiffrée par le coffre du système. La liaison IP reste facultative; utilisez-la seulement avec une adresse stable. Ne collez jamais la clé dans le chat.</p><label for="botApiKeyInput">Clé API</label><input id="botApiKeyInput" autocomplete="off" spellcheck="false" required><label for="botApiSecretInput">Clé secrète</label><input id="botApiSecretInput" type="password" autocomplete="new-password" required><div id="botKeyFormError" class="form-error" role="alert"></div><button id="botKeySubmit" class="button primary" type="submit">Vérifier et chiffrer</button></form></div>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <script src="app.js" defer></script>

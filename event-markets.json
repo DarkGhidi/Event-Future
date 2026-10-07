@@ -1,0 +1,9 @@
+{
+  "catalogSource": "https://www.mexc.com/futures/event-futures/BTC_USDT",
+  "catalogMethod": "Manual verification of the official Event Futures market selector; no documented public catalog endpoint was found.",
+  "verifiedOn": "2026-10-07",
+  "markets": [
+    { "symbol": "BTC_USDT", "label": "BTC / USDT" },
+    { "symbol": "ETH_USDT", "label": "ETH / USDT" }
+  ]
+}

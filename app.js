@@ -1,10 +1,12 @@
 /* Public market analysis; optional MEXC balance reads stay on the local server. No order endpoints. */
 const API='/api/market/candles?source=spot';
 const TIME_API='/api/market/time';
-const STREAM = 'wss://stream.binance.com:9443/ws/btcusdt@trade';
 const MEXC_INDEX_STREAM='wss://contract.mexc.com/edge';
 const MEXC_INDEX_API='/api/market/candles?source=index';
+let eventMarkets=[];
+let activeMarketSymbol=localStorage.getItem('eventlab-market-symbol')||'BTC_USDT';
 const MAX_STREAM_LATENCY_MS = 10_000;
+const MAX_FUTURE_CLOCK_SKEW_MS = 1_000;
 const MAX_CANDLE_AGE_MS = 90_000;
 const maxTickAgeMs=15_000;
 let serverClockOffset = 0;
@@ -12,8 +14,9 @@ let clockSyncedAt = 0;
 let state = {
   candles: {}, indexCandles:{}, lastPrice:null, lastTradeAt:0, lastReceivedAt:0, lastTradeLatency:null,
   spotPrice:null, spotTradeAt:0, spotReceivedAt:0, spotLatency:null, socket:null, indexSocket:null,
-  lastCandleFetchAt:0, marketGap:false, candleError:null, installPrompt:null, analysis:null,
-  journal:readJournal(),signalEvents:readSignalEvents(),prudence:Math.max(0,Math.min(100,Number(localStorage.getItem('eventlab-prudence')||70))),displayedAction:null,walletBusy:false,scanMode:'stopped',pendingSide:null,pendingSince:0,lastSpokenSide:null,lastAlertAt:{},soundEnabled:false,audio:null,preSignal:null,operationalSignal:null,signalCooldownUntil:0,goValiditySeconds:Math.max(15,Math.min(45,Number(localStorage.getItem('eventlab-go-validity')||30)))
+  indexReconnectAttempt:0,indexHeartbeat:null,indexWatchdog:null,indexReconnectTimer:null,spotReconnectTimer:null,indexLastMessageAt:0,
+  busySymbol:null,reloadRequested:false,lastCandleFetchAt:0,indexFetchedAt:{}, marketGap:false, candleError:null, installPrompt:null, analysis:null,
+  journal:readJournal(),signalEvents:readSignalEvents(),prudence:Math.max(0,Math.min(100,Number(localStorage.getItem('eventlab-prudence')||70))),displayedAction:null,walletBusy:false,scanMode:'stopped',pendingSide:null,pendingSince:0,lastSpokenSide:null,lastAlertAt:{},soundEnabled:false,audio:null,preSignal:null,operationalSignal:null,lastPopupSignal:null,signalCooldownUntil:0,goValiditySeconds:Math.max(15,Math.min(45,Number(localStorage.getItem('eventlab-go-validity')||30)))
 };
 const timeframes = { '1m': 1, '5m': 5, '15m': 15, '1h': 60, '4h': 240 };
 const $ = id => document.getElementById(id);
@@ -25,10 +28,10 @@ const age = ms => !Number.isFinite(ms) || ms < 0 ? '—' : ms < 1_000 ? '<1 s' :
 function readJournal(){try{return JSON.parse(localStorage.getItem('eventlab-journal')||'[]').filter(r=>r&&['up','down'].includes(r.side));}catch{return[];}}
 function readSignalEvents(){try{return JSON.parse(localStorage.getItem('eventlab-signal-events')||'[]').filter(r=>r&&r.id&&r.snapshot);}catch{return[];}}
 function persistSignalEvents(){state.signalEvents=state.signalEvents.slice(-500);localStorage.setItem('eventlab-signal-events',JSON.stringify(state.signalEvents));renderReview();}
-function signalSnapshot(){const a=state.analysis||{};return{capturedAt:Date.now(),horizon:'10m',index:{source:'MEXC index',price:state.lastPrice,exchangeAt:state.lastTradeAt,receivedAt:state.lastReceivedAt,ageMs:Math.max(0,Date.now()-state.lastReceivedAt)},spot:{source:'Binance spot',price:state.spotPrice,exchangeAt:state.spotTradeAt,receivedAt:state.spotReceivedAt,ageMs:state.spotReceivedAt?Math.max(0,Date.now()-state.spotReceivedAt):null},candlesFetchedAt:state.lastCandleFetchAt,features:a.ready?{trend:a.trend,momentum:a.momentum,volume:a.volume,volumeRatio:a.volumeRatio,location:a.location,volatility:a.volatility,anomaly:a.anomaly,rangeRatio:a.rangeRatio,wickRatio:a.wickRatio,spotGap:a.spotGap,score:a.score,requiredScore:a.requiredScore,contradictions:[...a.contradictions],entryLevel:a.entryLevel,invalidationLevel:a.invalidationLevel,entryBuffer:a.entryBuffer,forecastMovePct:a.forecastMovePct}:null};}
-function logSignalEvent(type,side,snapshot=signalSnapshot()){const event={id:String(Date.now())+'-'+Math.random().toString(36).slice(2,7),type,side,createdAt:Date.now(),price:state.lastPrice,snapshot,noTrade:false,outcome:null};state.signalEvents.unshift(event);persistSignalEvents();return event;}
+function signalSnapshot(){const a=state.analysis||{};return{symbol:activeMarketSymbol,capturedAt:Date.now(),horizon:'10m',index:{source:'MEXC index',price:state.lastPrice,exchangeAt:state.lastTradeAt,receivedAt:state.lastReceivedAt,ageMs:Math.max(0,Date.now()-state.lastReceivedAt)},spot:{source:'Binance spot',price:state.spotPrice,exchangeAt:state.spotTradeAt,receivedAt:state.spotReceivedAt,ageMs:state.spotReceivedAt?Math.max(0,Date.now()-state.spotReceivedAt):null},candlesFetchedAt:state.lastCandleFetchAt,features:a.ready?{trend:a.trend,momentum:a.momentum,volume:a.volume,volumeRatio:a.volumeRatio,location:a.location,volatility:a.volatility,anomaly:a.anomaly,rangeRatio:a.rangeRatio,wickRatio:a.wickRatio,spotGap:a.spotGap,score:a.score,requiredScore:a.requiredScore,contradictions:[...a.contradictions],entryLevel:a.entryLevel,invalidationLevel:a.invalidationLevel,entryBuffer:a.entryBuffer,forecastMovePct:a.forecastMovePct}:null};}
+function logSignalEvent(type,side,snapshot=signalSnapshot()){const event={id:String(Date.now())+'-'+Math.random().toString(36).slice(2,7),type,side,symbol:activeMarketSymbol,createdAt:Date.now(),price:state.lastPrice,snapshot,noTrade:false,outcome:null};state.signalEvents.unshift(event);persistSignalEvents();return event;}
 function closeSignalEvent(id,reason){const event=state.signalEvents.find(item=>item.id===id);if(event){event.closedAt=Date.now();event.closeReason=reason;event.noTrade=true;persistSignalEvents();}}
-function settleSignalEvents(){let changed=false;for(const event of state.signalEvents){if(event.type!=='go'||!event.confirmedAt||event.outcome||Date.now()<event.createdAt+600_000||!fresh()||state.lastReceivedAt<event.createdAt+600_000)continue;event.outcome=event.declaredOutcome||(state.lastPrice>event.price?'win':state.lastPrice<event.price?'loss':'draw');event.outcomeSource=event.declaredOutcome?'user-declared':'index-estimate';event.settledAt=state.lastReceivedAt;event.noTrade=!event.manualPositionId;changed=true;}if(changed)persistSignalEvents();}
+function settleSignalEvents(){let changed=false;for(const event of state.signalEvents){if((event.symbol||'BTC_USDT')!==activeMarketSymbol||event.type!=='go'||!event.confirmedAt||event.outcome||Date.now()<event.createdAt+600_000||!fresh()||state.lastReceivedAt<event.createdAt+600_000)continue;event.outcome=event.declaredOutcome||(state.lastPrice>event.price?'win':state.lastPrice<event.price?'loss':'draw');event.outcomeSource=event.declaredOutcome?'user-declared':'index-estimate';event.settledAt=state.lastReceivedAt;event.noTrade=!event.manualPositionId;changed=true;}if(changed)persistSignalEvents();}
 function persistJournal() { localStorage.setItem('eventlab-journal', JSON.stringify(state.journal)); renderJournal(); updateCountdown(); }
 function toast(message) { const node = $('toast'); node.textContent = message; node.classList.add('show'); clearTimeout(toast.timer); toast.timer = setTimeout(() => node.classList.remove('show'), 2_600); }
 
@@ -72,6 +75,12 @@ function fibLevels() {
   const levels = rising ? { 382: high - (high - low) * .382, 500: high - (high - low) * .5, 618: high - (high - low) * .618 } : { 382: low + (high - low) * .382, 500: low + (high - low) * .5, 618: low + (high - low) * .618 };
   return { high, low, levels, near: Math.min(...Object.values(levels).map(v => Math.abs(state.lastPrice - v))) / (high - low) };
 }
+function supportResistance(candleSets, currentPrice) {
+  const pivots=[];
+  for(const [tf,candles] of candleSets){const minutes=timeframes[tf]||1,closed=(candles||[]).filter(c=>c.time+minutes*60_000<=Date.now());for(let i=2;i<closed.length-2;i++){const c=closed[i],near=closed.slice(i-2,i).concat(closed.slice(i+1,i+3));if(near.every(v=>c.high>v.high))pivots.push({price:c.high,tf,kind:'resistance'});if(near.every(v=>c.low<v.low))pivots.push({price:c.low,tf,kind:'support'});}}
+  const makeZone=kind=>{const levels=pivots.filter(p=>p.kind===kind&&(kind==='support'?p.price<currentPrice:p.price>currentPrice)).sort((a,b)=>kind==='support'?b.price-a.price:a.price-b.price);if(!levels.length)return null;const anchor=levels[0].price,tolerance=currentPrice*.0015,cluster=levels.filter(p=>Math.abs(p.price-anchor)<=tolerance);const value=cluster.reduce((sum,p)=>sum+p.price,0)/cluster.length,distance=(value-currentPrice)/currentPrice*100;return{value,distance,tfs:[...new Set(cluster.map(p=>p.tf))],near:Math.abs(distance)<=.15};};
+  return {support:makeZone('support'),resistance:makeZone('resistance')};
+}
 function analyze() {
   const horizons = Object.fromEntries(Object.keys(timeframes).map(tf => [tf, summarize(tf)]));
   const one = horizons['1m'], fib = fibLevels();
@@ -110,22 +119,27 @@ function analyze() {
 
 async function syncClock() {
   try {
-    const before = Date.now(), response = await fetch(TIME_API, { cache: 'no-store' });
+    const before = Date.now(), response = await fetch(TIME_API+'?symbol='+encodeURIComponent(activeMarketSymbol), { cache: 'no-store' });
     if (!response.ok) throw new Error('Clock unavailable');
     const body = await response.json(), after = Date.now();
     serverClockOffset = Number(body.serverTime) - (before + after) / 2;
     clockSyncedAt = after;
+    if(state.analysis?.ready)renderAnalysis();
   } catch { /* Freshness checks block recommendations when the time reference expires. */ }
 }
 async function loadCandles() {
- if(state.busy)return;state.busy=true;
+ if(state.busy){if(state.busySymbol!==activeMarketSymbol)state.reloadRequested=true;return;}state.busy=true;state.busySymbol=activeMarketSymbol;
+ const requestedSymbol=activeMarketSymbol;
  try{
-  const tfs=Object.keys(timeframes),indexPairs=await Promise.all(tfs.map(async tf=>{const mins=timeframes[tf],end=Math.floor(Date.now()/1000),start=end-mins*60*125,interval=mins===1?'Min1':mins===5?'Min5':mins===15?'Min15':mins===60?'Min60':'Hour4',response=await fetch(MEXC_INDEX_API+'&tf='+tf,{cache:'no-store'});if(!response.ok)throw new Error('MEXC index HTTP '+response.status);const body=await response.json();if(!body.success||!body.data?.time)throw new Error('Chandelles index MEXC indisponibles');const d=body.data;return[tf,d.time.map((t,i)=>({time:Number(t)*1000,open:Number(d.open[i]),high:Number(d.high[i]),low:Number(d.low[i]),close:Number(d.close[i]),volume:0,closeTime:(Number(t)+mins*60-1)*1000}))];}));
-  indexPairs.forEach(([tf,rows])=>state.indexCandles[tf]=rows);state.candleError=null;state.lastCandleFetchAt=Date.now();
-  try{const spotPairs=await Promise.all(tfs.map(async tf=>{const response=await fetch(API+'&tf='+tf,{cache:'no-store'});if(!response.ok)throw new Error('HTTP '+response.status);const rows=await response.json();return[tf,rows.map(c=>({time:+c[0],open:+c[1],high:+c[2],low:+c[3],close:+c[4],volume:+c[5],closeTime:+c[6]}))];}));spotPairs.forEach(([tf,rows])=>state.candles[tf]=rows);state.spotCandleError=null;}catch(error){state.spotCandleError=error.message;}
+  const tfs=Object.keys(timeframes),indexResults=await Promise.allSettled(tfs.map(async tf=>{const mins=timeframes[tf],response=await fetch(MEXC_INDEX_API+'&symbol='+encodeURIComponent(requestedSymbol)+'&tf='+tf,{cache:'no-store'});if(!response.ok)throw new Error(tf+' HTTP '+response.status);const body=await response.json();if(!body.success||!body.data?.time)throw new Error(tf+' chandelles indisponibles');const d=body.data,rows=d.time.map((t,i)=>({time:Number(t)*1000,open:Number(d.open[i]),high:Number(d.high[i]),low:Number(d.low[i]),close:Number(d.close[i]),volume:0,closeTime:(Number(t)+mins*60-1)*1000}));if(!rows.length)throw new Error(tf+' sans chandelles');return[tf,rows];}));
+  if(requestedSymbol!==activeMarketSymbol)return;
+  const indexPairs=indexResults.filter(r=>r.status==='fulfilled').map(r=>r.value),failedTfs=indexResults.map((r,i)=>r.status==='rejected'?tfs[i]:null).filter(Boolean);
+  if(!indexPairs.length)throw new Error('Chandelles de l’indice MEXC indisponibles');
+  indexPairs.forEach(([tf,rows])=>{const live=state.indexCandles[tf]?.at(-1),freshLive=live&&Date.now()-live.time<timeframes[tf]*60_000&&live.time>=rows.at(-1)?.time;if(freshLive&&live.time===rows.at(-1)?.time)rows[rows.length-1]=live;else if(freshLive&&live.time>rows.at(-1)?.time)rows.push(live);state.indexCandles[tf]=rows;state.indexFetchedAt[tf]=Date.now();});state.candleError=failedTfs.length?'Chandelles MEXC incomplètes · horizon indisponible : '+failedTfs.join(', '):null;state.lastCandleFetchAt=Date.now();
+  try{const spotPairs=await Promise.all(tfs.map(async tf=>{const response=await fetch(API+'&symbol='+encodeURIComponent(requestedSymbol.replace('_',''))+'&tf='+tf,{cache:'no-store'});if(!response.ok)throw new Error('HTTP '+response.status);const rows=await response.json();return[tf,rows.map(c=>({time:+c[0],open:+c[1],high:+c[2],low:+c[3],close:+c[4],volume:+c[5],closeTime:+c[6]}))];}));if(requestedSymbol!==activeMarketSymbol)return;spotPairs.forEach(([tf,rows])=>state.candles[tf]=rows);state.spotCandleError=null;}catch(error){if(requestedSymbol===activeMarketSymbol)state.spotCandleError=error.message;}
   state.marketGap=false;state.analysis=analyze();renderAnalysis();
- }catch(error){state.candleError=error.message;renderAnalysis();}
- finally{state.busy=false;}
+ }catch(error){if(requestedSymbol===activeMarketSymbol){state.candleError=error.message;renderAnalysis();}}
+ finally{state.busy=false;state.busySymbol=null;if(state.reloadRequested){state.reloadRequested=false;queueMicrotask(loadCandles);}}
 }
 function updateLiveMinuteCandle(tradeTime, tradePrice, quantity) {
   const candles = state.candles['1m']; if (!candles?.length) return;
@@ -138,36 +152,42 @@ function updateLiveMinuteCandle(tradeTime, tradePrice, quantity) {
     if (candles.length > 120) candles.shift();
   }
 }
+function updateMexcIndexCandles(tradeTime, tradePrice) {
+  for (const [tf, minutes] of Object.entries(timeframes)) {
+    const candles=state.indexCandles[tf];if(!candles?.length)continue;
+    const duration=minutes*60_000,start=Math.floor(tradeTime/duration)*duration,last=candles.at(-1);
+    if(last.time===start){last.high=Math.max(last.high,tradePrice);last.low=Math.min(last.low,tradePrice);last.close=tradePrice;}
+    else if(last.time<start){candles.push({time:start,open:tradePrice,high:tradePrice,low:tradePrice,close:tradePrice,volume:0,closeTime:start+duration-1});if(candles.length>130)candles.shift();}
+  }
+}
 function connectStream() {
   try {
-    const socket=new WebSocket(STREAM);state.socket=socket;
+    const stream=activeMarketSymbol.replace('_','').toLowerCase(),socket=new WebSocket('wss://stream.binance.com:9443/ws/'+stream+'@trade');state.socket=socket;
     socket.onopen=()=>setConnection('ok','Marchés connectés');
-    socket.onmessage=event=>{try{const tick=JSON.parse(event.data),received=Date.now(),exchangeTime=Number(tick.T||tick.E);state.spotPrice=Number(tick.p);state.spotTradeAt=exchangeTime;state.spotReceivedAt=received;state.spotLatency=Math.max(0,received-(exchangeTime+serverClockOffset));updateLiveMinuteCandle(exchangeTime,state.spotPrice,Number(tick.q||0));renderPriceStatus();drawChart();}catch{}};
-    socket.onerror=()=>setConnection('bad','Marché au comptant Binance indisponible');socket.onclose=()=>{if(document.visibilityState!=='hidden')setConnection('bad','Reconnexion…');setTimeout(connectStream,2500);};
+    socket.onmessage=event=>{try{if(state.socket!==socket)return;const tick=JSON.parse(event.data),received=Date.now(),exchangeTime=Number(tick.T||tick.E);state.spotPrice=Number(tick.p);state.spotTradeAt=exchangeTime;state.spotReceivedAt=received;state.spotLatency=Math.max(0,received-(exchangeTime+serverClockOffset));updateLiveMinuteCandle(exchangeTime,state.spotPrice,Number(tick.q||0));renderPriceStatus();drawChart();}catch{}};
+    socket.onerror=()=>setConnection('bad','Marché au comptant Binance indisponible');socket.onclose=()=>{if(state.socket!==socket)return;if(document.visibilityState!=='hidden')setConnection('bad','Reconnexion…');clearTimeout(state.spotReconnectTimer);state.spotReconnectTimer=setTimeout(connectStream,2500);};
   }catch{setConnection('bad','Marché au comptant Binance indisponible');setTimeout(connectStream,5000);}
 }
 function connectMexcIndex() {
   try {
     const socket=new WebSocket(MEXC_INDEX_STREAM);state.indexSocket=socket;
-    socket.onopen=()=>socket.send(JSON.stringify({method:'sub.index.price',param:{symbol:'BTC_USDT'}}));
-    socket.onmessage=event=>{try{const msg=JSON.parse(event.data);if(msg.channel==='push.index.price'&&msg.data?.symbol==='BTC_USDT'){const received=Date.now(),exchangeTime=Number(msg.ts||Date.now()),val=Number(msg.data.price);if(!Number.isFinite(val)||val<=0)return;state.lastPrice=val;state.lastTradeAt=exchangeTime;state.lastReceivedAt=received;state.lastTradeLatency=Math.max(0,received-exchangeTime);state.analysis=analyze();settleSignalEvents();renderAnalysis();}}catch{}};
-    socket.onerror=()=>setConnection('bad','Index MEXC indisponible');socket.onclose=()=>{if(document.visibilityState!=='hidden')setConnection('bad','Index MEXC · reconnexion…');setTimeout(connectMexcIndex,2500);};
-  }catch{setConnection('bad','Index MEXC indisponible');setTimeout(connectMexcIndex,5000);}
+    socket.onopen=()=>{state.indexReconnectAttempt=0;state.indexLastMessageAt=Date.now();socket.send(JSON.stringify({method:'sub.index.price',param:{symbol:activeMarketSymbol}}));clearInterval(state.indexHeartbeat);clearInterval(state.indexWatchdog);state.indexHeartbeat=setInterval(()=>{if(socket.readyState===WebSocket.OPEN)socket.send(JSON.stringify({method:'ping'}));},15_000);state.indexWatchdog=setInterval(()=>{if(socket.readyState===WebSocket.OPEN&&Date.now()-state.indexLastMessageAt>45_000)socket.close();},5_000);};
+    socket.onmessage=event=>{try{if(state.indexSocket!==socket)return;const msg=JSON.parse(event.data);state.indexLastMessageAt=Date.now();if(msg.channel==='push.index.price'&&msg.data?.symbol===activeMarketSymbol){const received=Date.now(),exchangeTime=Number(msg.ts||Date.now()),val=Number(msg.data.price);if(!Number.isFinite(val)||val<=0)return;state.lastPrice=val;state.lastTradeAt=exchangeTime;state.lastReceivedAt=received;state.lastTradeLatency=Math.max(0,received-(exchangeTime+serverClockOffset));updateMexcIndexCandles(exchangeTime,val);state.analysis=analyze();settleSignalEvents();renderAnalysis();}}catch{}};
+    socket.onerror=()=>setConnection('bad','Index MEXC indisponible');socket.onclose=()=>{clearInterval(state.indexHeartbeat);clearInterval(state.indexWatchdog);if(state.indexSocket!==socket)return;if(document.visibilityState!=='hidden')setConnection('bad','Index MEXC · reconnexion…');const delay=Math.min(30_000,1_000*2**Math.min(state.indexReconnectAttempt++,5));clearTimeout(state.indexReconnectTimer);state.indexReconnectTimer=setTimeout(connectMexcIndex,delay);};
+  }catch{setConnection('bad','Index MEXC indisponible');const delay=Math.min(30_000,1_000*2**Math.min(state.indexReconnectAttempt++,5));clearTimeout(state.indexReconnectTimer);state.indexReconnectTimer=setTimeout(connectMexcIndex,delay);}
 }
 function setConnection(mode, label) { const c = $('connectionState'); c.className = 'connection ' + mode; c.innerHTML = '<i></i> ' + label; }
-function fresh() {
-  const now = Date.now(), tickAge = now - state.lastReceivedAt, marketAge = now + serverClockOffset - state.lastTradeAt;
-  return !!clockSyncedAt&&now-clockSyncedAt<300_000&&!!state.lastTradeAt&&tickAge<=maxTickAgeMs&&marketAge>=0&&marketAge<=maxTickAgeMs&&state.lastTradeLatency<=MAX_STREAM_LATENCY_MS&&!!state.lastCandleFetchAt&&
-    now - state.lastCandleFetchAt <= MAX_CANDLE_AGE_MS && !!state.analysis?.ready;
-}
+// Tolerate at most 1 s of clock skew; the maximum accepted tick age remains 15 s.
+function freshnessIssue(){const now=Date.now(),marketAge=now+serverClockOffset-state.lastTradeAt;if(!clockSyncedAt||now-clockSyncedAt>=300_000)return'horloge MEXC non synchronisée';if(!state.lastTradeAt||now-state.lastReceivedAt>maxTickAgeMs||marketAge < -MAX_FUTURE_CLOCK_SKEW_MS||marketAge>maxTickAgeMs||state.lastTradeLatency>MAX_STREAM_LATENCY_MS)return'tick de l’index MEXC périmé';if(!state.lastCandleFetchAt||now-state.lastCandleFetchAt>MAX_CANDLE_AGE_MS)return'chandelles de l’index périmées';for(const tf of Object.keys(timeframes))if(!state.indexFetchedAt[tf]||now-state.indexFetchedAt[tf]>MAX_CANDLE_AGE_MS)return'chandelles '+tf+' manquantes ou périmées';if(!state.analysis?.ready)return'analyse MEXC incomplète';return null;}
+function fresh() {return !freshnessIssue();}
 function renderPriceStatus() {
-  $('lastPrice').textContent=state.lastPrice?price(state.lastPrice):'—';$('sourceLabel').textContent='Index MEXC · '+(state.spotPrice?'Binance au comptant '+price(state.spotPrice):'Marché au comptant Binance indisponible');
+  $('lastPrice').textContent=state.lastPrice?price(state.lastPrice):'—';$('sourceLabel').textContent='Indice MEXC · '+(state.spotPrice?'spot Binance facultatif '+price(state.spotPrice):'confirmation spot facultative indisponible');
   if (state.lastTradeAt) {
     $('updatedAt').textContent='Index MEXC '+time(state.lastTradeAt)+' · reçu il y a '+age(Date.now()-state.lastReceivedAt)+' · latence observée '+age(state.lastTradeLatency);
   }
   if(state.candleError&&!state.lastCandleFetchAt)$('sourceLabel').textContent='Index MEXC · chandelles indisponibles';
   if (state.lastCandleFetchAt && Date.now() - state.lastCandleFetchAt > MAX_CANDLE_AGE_MS) $('sourceLabel').textContent = 'Chandelles périmées · rechargement en cours';
-  setConnection(fresh() ? 'ok' : 'bad', fresh() ? 'Flux à jour' : state.lastTradeAt ? 'Données périmées' : 'En attente');
+  const issue=freshnessIssue();setConnection(issue ? 'bad' : 'ok', issue ? state.lastTradeAt ? 'Données périmées' : 'En attente' : 'Flux à jour');$('connectionState').title=issue||'Index et chandelles MEXC à jour';$('freshnessNote').textContent=issue?'Blocage : '+issue+' · seuils actifs : tick 15 s, chandelles 90 s':'Index MEXC ≤ 15 s · chandelles de l’index ≤ 90 s · prix au comptant facultatif';
 }
 function disableActions(){const signal=state.operationalSignal,blocked=!!state.preSignal||!!signal&&(signal.phase!=='go'||signal.reconfirming),canLog=!!state.lastPrice&&!activePosition()&&!blocked;$('positionUpButton').disabled=!canLog||!!signal&&signal.side!=='up';$('positionDownButton').disabled=!canLog||!!signal&&signal.side!=='down';}
 function decisionFreshness() {
@@ -179,11 +199,12 @@ function decisionFreshness() {
   disableActions();
 }
 function drawChart() {
-  const canvas = $('priceChart'), candles = (state.candles['1m'] || []).slice(-60);
-  if (!canvas || !candles.length) return;
+  const canvas = $('priceChart'), candles = (state.indexCandles['1m'] || []).slice(-60);
+  if (!canvas) return;
   const rect = canvas.getBoundingClientRect(), ratio = window.devicePixelRatio || 1, width = Math.max(300, rect.width), height = rect.height || 220;
   canvas.width = width * ratio; canvas.height = height * ratio;
   const ctx = canvas.getContext('2d'); ctx.scale(ratio, ratio); ctx.clearRect(0, 0, width, height);
+  if(!candles.length){ctx.fillStyle='#728294';ctx.font='12px sans-serif';ctx.fillText(state.candleError?'Chandelles de l’indice MEXC indisponibles · nouvelle tentative en cours':'Chargement des chandelles historiques de l’indice MEXC…',16,height/2);return;}
   const pad = { left: 4, right: 60, top: 8, bottom: 22 }, plotW = width - pad.left - pad.right, plotH = height - pad.top - pad.bottom;
   const extrema = candles.flatMap(c => [c.high, c.low]), spread = Math.max(...extrema) - Math.min(...extrema) || 1;
   const min = Math.min(...extrema) - spread * .12, max = Math.max(...extrema) + spread * .12;
@@ -200,14 +221,14 @@ function drawChart() {
 }
 function renderAnalysis() {
   renderPriceStatus();
-  if (!state.analysis?.ready) { decisionFreshness(); return; }
+  if (!state.analysis?.ready) { decisionFreshness(); drawChart(); return; }
   const a = state.analysis, live = fresh(), side = a.decision;
-  const one = state.candles['1m'] || [];
-  if (one.length > 1 && state.spotPrice) { const change = (state.spotPrice - one.at(-2).close) / one.at(-2).close * 100; $('priceChange').textContent = (change >= 0 ? '+' : '') + change.toFixed(2) + '%'; $('priceChange').className = 'change ' + (change < 0 ? 'down' : ''); }
+  const one = state.indexCandles['1m'] || [];
+  if (one.length > 1 && state.lastPrice) { const change = (state.lastPrice - one.at(-2).close) / one.at(-2).close * 100; $('priceChange').textContent = (change >= 0 ? '+' : '') + change.toFixed(2) + '%'; $('priceChange').className = 'change ' + (change < 0 ? 'down' : ''); }
   $('decisionGlyph').textContent = side === 'up' ? '↑' : side === 'down' ? '↓' : '·';
   $('decisionGlyph').className = 'decision-glyph ' + (!live || side === 'pass' ? 'neutral' : side);
   $('decisionLabel').textContent = !live ? 'DONNÉES PÉRIMÉES' : side === 'up' ? 'ACHAT · POSITION LONGUE' : side === 'down' ? 'VENTE · POSITION COURTE' : 'PAS D’ENTRÉE';
-  $('decisionReason').textContent = !live ? 'Index MEXC ou confirmation spot périmé : suivi suspendu.' : side === 'pass' ? 'Pas d’accord suffisant entre les familles de signaux.' : side === 'up' ? 'Index MEXC à T+10 min · prix d’entrée réel fixé par MEXC.' : 'Index MEXC à T+10 min · prix d’entrée réel fixé par MEXC.';
+  $('decisionReason').textContent = !live ? 'Flux de l’index ou chandelles MEXC périmés : suivi suspendu.' : side === 'pass' ? 'Pas d’accord suffisant entre les familles de signaux.' : side === 'up' ? 'Index MEXC à T+10 min · prix d’entrée réel fixé par MEXC.' : 'Index MEXC à T+10 min · prix d’entrée réel fixé par MEXC.';
   $('entryHint').textContent=live&&a.entryLevel?(side==='up'?'Zone d’achat vers/au-dessus de ':'Zone de vente vers/sous ')+price(a.entryLevel)+' · index MEXC':'Seuil d’entrée indicatif indisponible'; $('invalidationHint').textContent=live&&a.invalidationLevel?(side==='up'?'Annuler si la lecture change ou si l’index < ':'Annuler si la lecture change ou si l’index > ')+price(a.invalidationLevel):'Signal annulé si les conditions changent ou si les données périment';
   $('positionUpButton').disabled=!state.lastPrice||!!activePosition();$('positionDownButton').disabled=!state.lastPrice||!!activePosition();
 
@@ -218,12 +239,14 @@ function renderAnalysis() {
   $('volSummary').textContent = a.location === 'above' ? 'Au-dessus de la bande haute' : a.location === 'below' ? 'Sous la bande basse' : a.location === 'upper-half' ? 'Moitié haute des bandes' : a.location === 'lower-half' ? 'Moitié basse des bandes' : '—';
   $('volumeSummary').textContent = format(a.volumeRatio, 2) + '× la moyenne récente';
   renderFactors(a); renderLevels(a); drawChart();
+  renderEventStructure();
   const contradictions = $('contradictions');
   if (a.contradictions.length) { contradictions.textContent = 'À garder en tête · ' + a.contradictions.join(' '); contradictions.classList.remove('hidden'); }
   else contradictions.classList.add('hidden');
   if (!live) decisionFreshness(); else updateCountdown();
   updateOperationalSignal();
 }
+function renderEventStructure(){const levels=supportResistance(Object.entries(state.indexCandles),state.lastPrice||NaN);for(const [kind,node] of [['support',levels.support],['resistance',levels.resistance]]){const value=$('event-'+kind);if(!value)continue;value.textContent=node?price(node.value)+' · '+(node.distance>0?'+':'')+format(node.distance,2)+' % · '+node.tfs.join(' / ')+(node.near?' · proche':''):'Pas de pivot confirmé disponible';}}
 function renderFactors(a) {
   const cards = $('factors').children, ups = Object.values(a.horizons).filter(v => v.trend === 'up').length, downs = Object.values(a.horizons).filter(v => v.trend === 'down').length;
   const t = ups >= 3 ? 'up' : downs >= 3 ? 'down' : 'mixed';
@@ -242,13 +265,13 @@ function renderLevels(a) {
   $('levelHigh').textContent = price(a.fib.high); $('levelCurrent').textContent = price(state.lastPrice); $('levelLow').textContent = price(a.fib.low);
   $('fib382').textContent = price(a.fib.levels[382]); $('fib500').textContent = price(a.fib.levels[500]); $('fib618').textContent = price(a.fib.levels[618]);
 }
-function activePosition() { return state.journal.filter(r => r.status === 'open' && r.expiresAt > Date.now()).sort((a, b) => a.expiresAt - b.expiresAt)[0]; }
+function activePosition() { return state.journal.filter(r => (r.symbol||'BTC_USDT')===activeMarketSymbol&&r.status === 'open' && r.expiresAt > Date.now()).sort((a, b) => a.expiresAt - b.expiresAt)[0]; }
 function updateCountdown() {
   const active=activePosition();if(!active){$('countdown').textContent='—';return;}const left=Math.max(0,active.expiresAt-Date.now()),value=String(Math.floor(left/60_000)).padStart(2,'0')+':'+String(Math.floor(left%60_000/1_000)).padStart(2,'0');$('countdown').textContent='Suivi · '+value;
 }
 function makeRecord(side) {
   const now=Date.now(),a=state.analysis;
-  return {id:String(now)+'-'+Math.random().toString(36).slice(2,7),created:now,entryObservedAt:state.lastReceivedAt,entryExchangeAt:state.lastTradeAt,side,price:state.lastPrice,entryIndexPrice:state.lastPrice,indexSource:'MEXC',expiresAt:now+600_000,status:'open',result:null,signalEventId:state.operationalSignal?.side===side?state.operationalSignal.eventId:null,signalSnapshot:signalSnapshot(),manualEntryDelayMs:state.operationalSignal?.side===side?now-state.operationalSignal.issuedAt:null,
+  return {id:String(now)+'-'+Math.random().toString(36).slice(2,7),symbol:activeMarketSymbol,created:now,entryObservedAt:state.lastReceivedAt,entryExchangeAt:state.lastTradeAt,side,price:state.lastPrice,entryIndexPrice:state.lastPrice,indexSource:'MEXC',expiresAt:now+600_000,status:'open',result:null,signalEventId:state.operationalSignal?.side===side?state.operationalSignal.eventId:null,signalSnapshot:signalSnapshot(),manualEntryDelayMs:state.operationalSignal?.side===side?now-state.operationalSignal.issuedAt:null,
     factors:a?.ready?{trend:a.trend,momentum:a.momentum,volume:a.volume,location:a.location,volatility:a.volatility,anomaly:a.anomaly,score:a.score,requiredScore:a.requiredScore,spotGap:a.spotGap,volumeRatio:a.volumeRatio}:null,
     tickAgeAtStart:Math.max(0,Date.now()-state.lastReceivedAt),entryMarkedManually:true,entryReferenceFresh:fresh()};
 }
@@ -302,8 +325,8 @@ function updateOperationalSignal() {
  }
  if(side&&now>=state.signalCooldownUntil){
    const bounds=signalBounds(side,a),preEligible=!bounds.near&&!bounds.invalid&&bounds.distance>0&&bounds.distance<=bounds.preLead;
-   if(preEligible){state.pendingSide=null;state.pendingSince=0;if(state.preSignal&&state.preSignal.side!==side)closeSignalEvent(state.preSignal.eventId,'direction-changed');if(!state.preSignal||state.preSignal.side!==side){state.preSignal={side,issuedAt:now,entryLevel:a.entryLevel,invalidationLevel:a.invalidationLevel,entryBuffer:a.entryBuffer,weakSince:0,eventId:logSignalEvent('pre-alert',side).id};setSignalVisual(side,'pre');}else state.preSignal.weakSince=0;$('positionUpButton').disabled=true;$('positionDownButton').disabled=true;$('decisionLabel').textContent=state.preSignal.side==='up'?'PRÉ-SIGNAL HAUSSIER · APPROCHE':'PRÉ-SIGNAL BAISSIER · APPROCHE';$('decisionReason').textContent='Configuration en approche. Préparez MEXC; attendez le GO confirmé avant toute action.';$('entryHint').textContent='Seuil surveillé · index MEXC '+price(a.entryLevel);$('invalidationHint').textContent='Aucune entrée confirmée · la configuration peut disparaître.';$('scanCountdown').textContent='PRÉ-SIGNAL · surveillez la zone, ne prenez pas de position';return;}
-   if(bounds.near&&!bounds.invalid){const preAlertId=state.preSignal?.eventId||null;if(state.preSignal)state.preSignal=null;if(state.pendingSide!==side){state.pendingSide=side;state.pendingSince=now;}if(now-state.pendingSince>=1_500){const goEvent=logSignalEvent('go',side);const preEvent=state.signalEvents.find(item=>item.id===preAlertId);if(preEvent){preEvent.goEventId=goEvent.id;preEvent.closedAt=now;preEvent.closeReason='go-confirmed';persistSignalEvents();}state.operationalSignal={side,issuedAt:now,expiresAt:now+state.goValiditySeconds*1000,entryLevel:a.entryLevel,invalidationLevel:a.invalidationLevel,entryBuffer:a.entryBuffer,phase:'go',weakSince:0,reconfirming:false,eventId:goEvent.id,preAlertId};state.pendingSide=null;state.pendingSince=0;setSignalVisual(side);$('positionUpButton').disabled=side!=='up';$('positionDownButton').disabled=side!=='down';startSignalCountdown(state.operationalSignal);return;}}
+   if(preEligible){state.pendingSide=null;state.pendingSince=0;if(state.preSignal&&state.preSignal.side!==side)closeSignalEvent(state.preSignal.eventId,'direction-changed');if(!state.preSignal||state.preSignal.side!==side){state.preSignal={side,issuedAt:now,entryLevel:a.entryLevel,invalidationLevel:a.invalidationLevel,entryBuffer:a.entryBuffer,weakSince:0,eventId:logSignalEvent('pre-alert',side).id};setSignalVisual(side,'pre');toast((eventMarkets.find(m=>m.symbol===activeMarketSymbol)?.label||activeMarketSymbol)+' · '+(side==='up'?'Pré-signal haussier':'Pré-signal baissier')+' · approche de '+price(a.entryLevel));}else state.preSignal.weakSince=0;$('positionUpButton').disabled=true;$('positionDownButton').disabled=true;$('decisionLabel').textContent=state.preSignal.side==='up'?'PRÉ-SIGNAL HAUSSIER · APPROCHE':'PRÉ-SIGNAL BAISSIER · APPROCHE';$('decisionReason').textContent='Configuration en approche. Préparez MEXC; attendez le GO confirmé avant toute action.';$('entryHint').textContent='Seuil surveillé · index MEXC '+price(a.entryLevel);$('invalidationHint').textContent='Aucune entrée confirmée · la configuration peut disparaître.';$('scanCountdown').textContent='PRÉ-SIGNAL · surveillez la zone, ne prenez pas de position';return;}
+   if(bounds.near&&!bounds.invalid){const preAlertId=state.preSignal?.eventId||null;if(state.preSignal)state.preSignal=null;if(state.pendingSide!==side){state.pendingSide=side;state.pendingSince=now;}if(now-state.pendingSince>=1_500){const goEvent=logSignalEvent('go',side);const preEvent=state.signalEvents.find(item=>item.id===preAlertId);if(preEvent){preEvent.goEventId=goEvent.id;preEvent.closedAt=now;preEvent.closeReason='go-confirmed';persistSignalEvents();}state.operationalSignal={side,issuedAt:now,expiresAt:now+state.goValiditySeconds*1000,entryLevel:a.entryLevel,invalidationLevel:a.invalidationLevel,entryBuffer:a.entryBuffer,phase:'go',weakSince:0,reconfirming:false,eventId:goEvent.id,preAlertId};state.pendingSide=null;state.pendingSince=0;setSignalVisual(side);toast((eventMarkets.find(m=>m.symbol===activeMarketSymbol)?.label||activeMarketSymbol)+' · '+(side==='up'?'GO haussier':'GO baissier')+' confirmé · exécution manuelle');$('positionUpButton').disabled=side!=='up';$('positionDownButton').disabled=side!=='down';startSignalCountdown(state.operationalSignal);return;}}
  }
  if(state.preSignal){const heldSide=state.preSignal.side,bounds=signalBounds(heldSide,a,state.preSignal.entryLevel),stillSetup=side===heldSide&&!bounds.invalid&&bounds.distance<=bounds.preLead&&bounds.distance>=-bounds.chase;if(stillSetup)state.preSignal.weakSince=0;else{state.preSignal.weakSince??=now;if(now-state.preSignal.weakSince>=3_000){closeSignalEvent(state.preSignal.eventId,'configuration-disappeared');state.preSignal=null;setSignalVisual(null);}}}
  $('positionUpButton').disabled=!state.lastPrice;$('positionDownButton').disabled=!state.lastPrice;
@@ -314,6 +337,7 @@ function processScan() { if(state.scanMode==='running')updateOperationalSignal()
 function settleJournal() {
   let changed = false;
   for(const record of state.journal){
+    if((record.symbol||'BTC_USDT')!==activeMarketSymbol)continue;
     if(record.status!=='open'||record.expiresAt>Date.now()||record.result)continue;
     let expiryIndex=Number.isFinite(record.expiryIndexPrice)?record.expiryIndexPrice:Number.isFinite(record.expirySpotPrice)?record.expirySpotPrice:null;
     if(expiryIndex==null&&state.lastPrice&&fresh()&&state.lastReceivedAt>=record.expiresAt){
@@ -376,7 +400,7 @@ function renderJournal() {
   const result = record.result ? (record.result==='win'?'GAGNÉ':record.result==='loss'?'PERDU':'ÉGALITÉ')+(record.resultSource==='index-estimate'?' · index estimé':record.resultSource==='manual-correction'?' · déclaré, corrigé':' · déclaré') : left ? 'Suivi · ' + clock : record.expiryReviewRequired ? 'À vérifier · index indisponible à l’échéance' : 'Échéance · attente d’un index à jour';
     const cls = record.result === 'win' ? 'win' : record.result === 'loss' ? 'loss' : record.status === 'open' ? 'open' : 'draw';
     const entryIndex=Number.isFinite(record.entryIndexPrice)?record.entryIndexPrice:record.price,expiryIndex=Number.isFinite(record.expiryIndexPrice)?record.expiryIndexPrice:record.expirySpotPrice;
-    const detail='Référence estimée · index MEXC au clic '+price(entryIndex)+(record.signalEventId?' · signal '+record.signalEventId:'')+(record.entryReferenceFresh===false?' · lecture initiale périmée':'')+(Number.isFinite(expiryIndex)?' · index à échéance '+price(expiryIndex):'')+(record.resultSource==='manual-correction'?' · corrigé selon résultat réel':'');
+    const detail=(record.symbol||'BTC_USDT').replace('_',' / ')+' · référence index MEXC '+price(entryIndex)+(record.signalEventId?' · signal '+record.signalEventId:'')+(record.entryReferenceFresh===false?' · lecture initiale périmée':'')+(Number.isFinite(expiryIndex)?' · index à échéance '+price(expiryIndex):'')+(record.resultSource==='manual-correction'?' · corrigé selon résultat réel':'');
     const resultButtons = !record.result && !left ? '<span class="result-buttons"><button data-result="win" data-id="' + record.id + '" class="result-button win">Gagné</button><button data-result="loss" data-id="' + record.id + '" class="result-button loss">Perdu</button><button data-result="draw" data-id="' + record.id + '" class="result-button draw">Égalité / remboursé</button></span>' : record.resultSource==='index-estimate'||record.resultSource==='manual-correction'||record.resultSource==='manual-declared' ? '<span class="result-buttons"><button data-result="win" data-source="correction" data-id="' + record.id + '" class="result-button win" aria-label="Corriger en résultat gagné">Gagné</button><button data-result="loss" data-source="correction" data-id="' + record.id + '" class="result-button loss" aria-label="Corriger en résultat perdu">Perdu</button><button data-result="draw" data-source="correction" data-id="' + record.id + '" class="result-button draw" aria-label="Corriger en égalité remboursée">Égalité / remboursé</button></span>' : '';
     return '<div class="journal-row"><span class="date">' + time(record.created) + '</span><strong class="side ' + record.side + '">' + label + '</strong><span class="detail">' + detail + '</span><span class="result ' + cls + '">' + result + '</span>' + resultButtons + '</div>';
   }).join('');
@@ -403,25 +427,144 @@ function setupWallet() {
   $('walletDisconnectButton').addEventListener('click',async()=>{try{renderWallet(await walletRequest('/api/mexc/disconnect',{method:'POST',body:'{}'}));if(window.eventFuturesNative?.clearMexcCredentials){const result=await window.eventFuturesNative.clearMexcCredentials();if(!result?.cleared)toast('Portefeuille déconnecté, mais la suppression du stockage chiffré a échoué.');}}catch(error){toast(error.message);}});
   refreshWallet();
 }
+const botState = { symbol:'BTC_USDT', market:null, marketBusy:false, accountConnected:false, emergencyLatched:false, storageAvailable:false, botActive:false, botBusy:false, availableUsdt:null };
+async function botRequest(path, options={}) {
+  let response;
+  try { response=await fetch(path,{cache:'no-store',...options,headers:{'Content-Type':'application/json',...(options.headers||{})}}); }
+  catch { throw new Error('Serveur local indisponible.'); }
+  let data={}; try { data=await response.json(); } catch {}
+  if(!response.ok) throw new Error(data.error||'Lecture indisponible.');
+  return data;
+}
+function botSymbol() { return $('botPairSelect').value === 'RIVER_USDT' ? 'RIVER_USDT' : 'BTC_USDT'; }
+function botUsdt(n, digits=2) { return format(n,digits)+' USDT'; }
+function renderBotExposure() {
+  const allocated=Math.max(0,Number($('botAllocatedBudget').value)||0), share=Number($('botMarginShare').value)||0, leverage=Number($('botLeverage').value)||0;
+  const margin=allocated*share/100, notional=margin*leverage;
+  $('botMarginShareValue').textContent=share+' %'; $('botLeverageValue').textContent=leverage+'×';
+  $('botMarginResult').textContent=botUsdt(margin)+' de marge / trade'; $('botNotionalResult').textContent=botUsdt(notional)+' de notionnel estimé';
+  const market=botState.market, contract=market?.contract;
+  if(!contract) { $('botLimitResult').textContent='Limites MEXC non vérifiées; aucun démarrage possible.';updateBotStartAvailability();return; }
+  const baseMaxLev=Number(contract.countryConfigContractMaxLeverage)>0?Number(contract.countryConfigContractMaxLeverage):Number(contract.maxLeverage), minVol=Number(contract.minVol), maxVol=Number(contract.maxVol);
+  const allowed=contract.apiAllowed===true||contract.apiAllowed===1||contract.apiAllowed==='1'||contract.apiAllowed==='true';
+  const status=Number(contract.state)===0?'contrat actif':'contrat non confirmé actif';
+  let volume=Number(market.ticker?.lastPrice)>0&&Number(contract.contractSize)>0?notional/(Number(market.ticker.lastPrice)*Number(contract.contractSize)):NaN;
+  const volUnit=Number(contract.volUnit)||1; if(Number.isFinite(volume))volume=Math.floor(volume/volUnit)*volUnit;
+  const tiers=Array.isArray(contract.riskLimitCustom)?contract.riskLimitCustom.slice().sort((a,b)=>Number(a.maxVol)-Number(b.maxVol)):[];
+  const tier=tiers.find(item=>Number.isFinite(volume)&&volume<=Number(item.maxVol));
+  const tierMaxLev=Number(tier?.maxLeverage), maxLev=Number.isFinite(tierMaxLev)&&tierMaxLev>0?Math.min(baseMaxLev,tierMaxLev):baseMaxLev;
+  const volumeOk=Number.isFinite(volume)&&volume>=minVol&&volume<=maxVol;
+  $('botLimitResult').textContent=status+' · levier max '+(Number.isFinite(maxLev)?maxLev+'×':'inconnu')+' · '+(allowed?'API autorisée':'API non autorisée ou non confirmée')+(Number.isFinite(volume)?' · volume estimé '+format(volume,4)+' contrats':'')+(volumeOk?'':' · volume hors limites');
+  if(Number.isFinite(maxLev)&&maxLev>0){$('botLeverage').max=String(maxLev);if(Number($('botLeverage').value)>maxLev){$('botLeverage').value=String(maxLev);renderBotExposure();return;}}
+  $('botLeverageValue').textContent=$('botLeverage').value+'×';
+  const latestCandleAt=market.candles?.at(-1)?.time||0;
+  const fresh=Date.now()-market.checkedAt<30_000&&latestCandleAt>0&&Date.now()-(latestCandleAt+60_000)<90_000;
+  if(!fresh||Number(contract.state)!==0||!allowed||!volumeOk||!Number.isFinite(maxLev)||leverage>maxLev) $('botLimitResult').dataset.state='blocked';
+  else $('botLimitResult').dataset.state='verified';
+  updateBotStartAvailability();
+}
+function updateBotStartAvailability(){
+  const contract=botState.market?.contract,market=botState.market,margin=(Math.max(0,Number($('botAllocatedBudget')?.value)||0)*(Number($('botMarginShare')?.value)||0))/100,wallet=Number($('botWalletBudget')?.value)||0;
+  const latest=market?.candles?.at(-1)?.time||0,marketFresh=!!market&&Date.now()-market.checkedAt<30_000&&latest>0&&Date.now()-(latest+60_000)<90_000;
+  const available=botState.availableUsdt;
+  const eligible=botState.storageAvailable&&botState.accountConnected&&!!contract&&$('botLimitResult')?.dataset.state==='verified'&&contract.apiAllowed===true&&Number(contract.state)===0&&marketFresh&&margin>0&&Number($('botAllocatedBudget')?.value)<=wallet&&Number.isFinite(available)&&available>=margin*1.03&&$('botLiveConsent')?.checked&&!botState.botActive&&!botState.botBusy&&!botState.emergencyLatched;
+  $('botStartButton').disabled=!eligible;$('botStartButton').textContent=botState.botBusy?'Vérification…':'Démarrer le bot';$('botStopButton').classList.toggle('hidden',!botState.botActive);
+}
+function drawBotChart() {
+  const canvas=$('botPriceChart'), candles=botState.market?.candles||[]; if(!canvas||!candles.length)return;
+  const rect=canvas.getBoundingClientRect(),ratio=window.devicePixelRatio||1,width=Math.max(300,rect.width),height=rect.height||145;
+  canvas.width=width*ratio;canvas.height=height*ratio;const ctx=canvas.getContext('2d');ctx.scale(ratio,ratio);ctx.clearRect(0,0,width,height);
+  const recent=candles.slice(-60),pad={left:5,right:62,top:8,bottom:20},plotW=width-pad.left-pad.right,plotH=height-pad.top-pad.bottom;
+  const highs=recent.flatMap(c=>[c.high,c.low]),spread=Math.max(...highs)-Math.min(...highs)||1,min=Math.min(...highs)-spread*.1,max=Math.max(...highs)+spread*.1,y=v=>pad.top+(max-v)/(max-min)*plotH,x=i=>pad.left+(i+.5)*plotW/recent.length;
+  ctx.font='9px monospace';ctx.fillStyle='#728294';ctx.strokeStyle='#1b2b3d';
+  for(let g=0;g<3;g++){const yy=pad.top+plotH*g/2;ctx.beginPath();ctx.moveTo(pad.left,yy);ctx.lineTo(width-pad.right,yy);ctx.stroke();ctx.fillText(price(max-(max-min)*g/2),width-pad.right+5,yy+3);}
+  const bodyW=Math.max(2,plotW/recent.length*.55);recent.forEach((c,i)=>{const color=c.close>=c.open?'#65d8a3':'#ff7881',cx=x(i),top=y(Math.max(c.open,c.close)),bottom=y(Math.min(c.open,c.close));ctx.strokeStyle=color;ctx.fillStyle=color;ctx.beginPath();ctx.moveTo(cx,y(c.high));ctx.lineTo(cx,y(c.low));ctx.stroke();ctx.fillRect(cx-bodyW/2,top,bodyW,Math.max(1,bottom-top));});
+  ctx.fillStyle='#647487';ctx.fillText(time(recent[0].time).slice(0,5),pad.left,height-4);ctx.fillText(time(recent.at(-1).time).slice(0,5),width-pad.right-30,height-4);
+}
+function renderBotMarket(data) {
+  botState.market=data;const symbol=data.symbol, ticker=Array.isArray(data.ticker)?data.ticker[0]:data.ticker,contract=data.contract,closes=(data.candles||[]).map(c=>c.close).filter(Number.isFinite);
+  data.ticker=ticker; $('botChartTitle').textContent=symbol+' · MEXC Perpétuel';$('botPriceValue').textContent=price(Number(ticker?.lastPrice));
+  $('botContractState').textContent=Number(contract.state)===0?'Contrat actif · limites relues sur MEXC':'Contrat inactif ou statut non confirmé';
+  const facts=[['Prix MEXC',price(Number(ticker?.lastPrice))],['Levier maximum',(contract.maxLeverage??contract.countryConfigContractMaxLeverage??'—')+'×'],['Pas de prix',contract.priceUnit??'—'],['Taille du contrat',contract.contractSize??'—']];
+  $('botContractFacts').innerHTML=facts.map(([label,value])=>'<div><span>'+label+'</span><strong>'+String(value).replace(/[<>]/g,'')+'</strong></div>').join('');
+  $('botContractFreshness').textContent='Lecture '+time(data.checkedAt)+' · public MEXC';
+  const m=macd(closes);$('botMacdValue').textContent=m?format(m.line,6)+' · signal '+format(m.signal,6):'En attente de 35 chandelles';
+  const zones=supportResistance([['1m',data.candles],['5m',data.candles5m],['15m',data.candles15m]],Number(ticker?.lastPrice));$('botSupport').textContent=zones.support?price(zones.support.value)+' · '+format(zones.support.distance,2)+' % · '+zones.support.tfs.join('/'):'Non disponible';$('botResistance').textContent=zones.resistance?price(zones.resistance.value)+' · +'+format(zones.resistance.distance,2)+' % · '+zones.resistance.tfs.join('/'):'Non disponible';
+  const atr=atrValue(data.candles),last=Number(ticker?.lastPrice);$('botAtr').textContent=atr&&last?price(atr)+' · '+format(atr/last*100,3)+' % du prix':'Non disponible';
+  const metric=(id,value,digits=0)=>{const node=$(id),n=Number(value);node.textContent=value!==null&&value!==undefined&&Number.isFinite(n)?format(n,digits):'Non fourni par MEXC';};metric('botVolume24',ticker?.volume24,2);metric('botAmount24',ticker?.amount24,2);metric('botOpenInterest',ticker?.holdVol,2);metric('botFunding',ticker?.fundingRate*100,4);if(Number.isFinite(Number(ticker?.fundingRate)))$('botFunding').textContent=format(Number(ticker.fundingRate)*100,4)+' %';
+  if(closes.length){const high=Math.max(...closes.slice(-60)),low=Math.min(...closes.slice(-60)),range=high-low;$('botFib382').textContent=price(high-range*.382);$('botFib500').textContent=price(high-range*.5);$('botFib618').textContent=price(high-range*.618);}
+  renderBotExposure();drawBotChart();
+}
+async function refreshBotMarket() {
+  if(botState.marketBusy)return;botState.marketBusy=true;
+  const symbol=botSymbol();botState.symbol=symbol;
+  try{const data=await botRequest('/api/bot/market?symbol='+encodeURIComponent(symbol));if(botSymbol()===symbol)renderBotMarket(data);}
+  catch(error){$('botContractState').textContent='Données MEXC indisponibles';$('botContractFreshness').textContent=error.message;$('botLimitResult').textContent='Limites non vérifiées; démarrage interdit.';$('botStartButton').disabled=true;}
+  finally{botState.marketBusy=false;}
+}
+function renderBotAccount(data) {
+  botState.accountConnected=!!data.connected;
+  const usdt=(data.assets||[]).find(x=>String(x.currency||'').toUpperCase()==='USDT');botState.availableUsdt=Number(usdt?.availableBalance??usdt?.available??usdt?.equity);
+  $('botConnectionLabel').textContent=data.connected?'Compte connecté · lecture':'Hors connexion';
+  $('botAccountStatus').textContent=data.connected?'Compte vérifié · lecture seule':'Aucune clé de trading configurée';
+  $('botAccountDetails').textContent=data.connected?'Lecture MEXC '+time(data.checkedAt)+' · '+format(data.latencyMs,0)+' ms. Aucun ordre n’est envoyé.':'La clé est testée avec des requêtes de lecture puis chiffrée localement.';
+  $('botConnectButton').classList.toggle('hidden',!!data.connected);$('botDisconnectButton').classList.toggle('hidden',!data.connected);
+  if(data.connected){const positions=data.positions||[];$('botAccountSummary').innerHTML=[['USDT disponible',format(botState.availableUsdt,2)],['Positions ouvertes',String(positions.length)],['Vérifié',time(data.checkedAt)]].map(([a,b])=>'<div><span>'+a+'</span><strong>'+b+'</strong></div>').join('');$('botAccountSummary').classList.remove('hidden');}
+  else $('botAccountSummary').classList.add('hidden');
+  updateBotStartAvailability();
+}
+async function refreshBotAccount(){try{const data=await botRequest('/api/bot/account');renderBotAccount(data);}catch(error){botState.accountConnected=false;botState.availableUsdt=null;$('botAccountStatus').textContent='Lecture MEXC indisponible';$('botAccountDetails').textContent=error.message;updateBotStartAvailability();}}
+async function refreshBotStatus(){try{const data=await botRequest('/api/bot/status');botState.botActive=!!data.active;$('botStatusText').textContent=data.status||'Bot arrêté';$('botOrderState').textContent=data.managedPosition?'Position MEXC suivie':'Aucun ordre en cours';if(data.active)$('botExitState').textContent='SL / TP MEXC · trailing en suivi';else if(data.status?.includes('Intervention manuelle'))$('botExitState').textContent='Vérification MEXC requise';updateBotStartAvailability();}catch{}}
+async function setupBot() {
+  const native=window.eventFuturesNative, local=['localhost','127.0.0.1'].includes(location.hostname), storage=native?.getBotCredentialStorageStatus?await native.getBotCredentialStorageStatus():{available:false,saved:false};
+  botState.storageAvailable=!!(local&&storage.available);
+  if(!local||!storage.available){$('botConnectButton').disabled=true;$('botAccountDetails').textContent='La configuration exige l’application bureau et le chiffrement sécurisé du système.';}
+  else if(storage.saved){$('botAccountStatus').textContent='Clé chiffrée restaurée · vérification en cours';await refreshBotAccount();}
+  $('botPairSelect').addEventListener('change',()=>{botState.market=null;$('botChartTitle').textContent=botSymbol()+' · MEXC Perpétuel';$('botPriceValue').textContent='—';$('botContractState').textContent='Vérification des règles publiques…';updateBotStartAvailability();refreshBotMarket();});
+  $('botAllocatedBudget').addEventListener('input',renderBotExposure);$('botMarginShare').addEventListener('input',renderBotExposure);$('botLeverage').addEventListener('input',renderBotExposure);
+  $('botWalletBudget').addEventListener('input',updateBotStartAvailability);$('botLiveConsent').addEventListener('change',updateBotStartAvailability);
+  $('botConnectButton').addEventListener('click',()=>{$('botKeyDialog').classList.remove('hidden');$('botApiKeyInput').focus();});
+  $('botKeyDialogClose').addEventListener('click',()=>{$('botKeyDialog').classList.add('hidden');$('botKeyFormError').textContent='';});
+  $('botKeyForm').addEventListener('submit',async event=>{event.preventDefault();if(!local||!storage.available)return;let key=$('botApiKeyInput').value,secret=$('botApiSecretInput').value;$('botKeySubmit').disabled=true;$('botKeyFormError').textContent='Vérification de lecture en cours…';try{const data=await botRequest('/api/bot/connect',{method:'POST',body:JSON.stringify({apiKey:key,apiSecret:secret})});const saved=await native.saveBotCredentials(key,secret);if(!saved)throw new Error('Le coffre sécurisé du système n’a pas enregistré la clé; la connexion a été annulée.');renderBotAccount(data);$('botKeyDialog').classList.add('hidden');toast('Clé vérifiée et chiffrée sur cet appareil.');}catch(error){$('botKeyFormError').textContent=error.message;try{await botRequest('/api/bot/disconnect',{method:'POST',body:'{}'});}catch{}}finally{key='';secret='';$('botApiKeyInput').value='';$('botApiSecretInput').value='';$('botKeySubmit').disabled=false;}});
+  $('botDisconnectButton').addEventListener('click',async()=>{try{renderBotAccount(await botRequest('/api/bot/disconnect',{method:'POST',body:'{}'}));const result=await native.clearBotCredentials();if(!result?.cleared)toast('Session coupée, mais le fichier chiffré n’a pas pu être supprimé.');}catch(error){toast(error.message);}});
+  $('botStartButton').addEventListener('click',async()=>{if($('botStartButton').disabled||botState.botBusy)return;const allocated=Number($('botAllocatedBudget').value),marginPercent=Number($('botMarginShare').value),leverage=Number($('botLeverage').value),margin=allocated*marginPercent/100,notional=margin*leverage;const ok=window.confirm('Démarrer le bot sur '+botSymbol()+' ?\n\nOrdres réels MEXC · MACD 1 min + tendance 5/15 min.\nMarge prévue : '+botUsdt(margin)+' · notionnel : '+botUsdt(notional)+' · levier : '+leverage+'×.\nSL 1,5 ATR · TP 3 ATR · trailing après +1,5 ATR.\n\nConfirmez uniquement si vous acceptez le risque de perte.');if(!ok)return;botState.botBusy=true;updateBotStartAvailability();try{const data=await botRequest('/api/bot/start',{method:'POST',body:JSON.stringify({symbol:botSymbol(),allocated,walletBudget:Number($('botWalletBudget').value),marginPercent,leverage,consent:$('botLiveConsent').checked})});botState.botActive=!!data.active;$('botStatusText').textContent=data.status;$('botOrderState').textContent='Surveillance · aucune entrée ouverte';toast('Bot démarré; attente d’un signal MACD confirmé.');}catch(error){toast(error.message);}finally{botState.botBusy=false;updateBotStartAvailability();refreshBotStatus();}});
+  $('botStopButton').addEventListener('click',async()=>{try{const data=await botRequest('/api/bot/stop',{method:'POST',body:'{}'});botState.botActive=!!data.active;$('botStatusText').textContent=data.status;toast('Bot arrêté; les protections MEXC en place restent actives.');refreshBotStatus();}catch(error){toast(error.message);}});
+  $('botEmergencyStop').addEventListener('click',async()=>{if(!window.confirm('Arrêt d’urgence : arrêter les nouvelles entrées et tenter de clôturer immédiatement la position du bot ? Les protections MEXC existantes ne garantissent pas le prix d’exécution.'))return;botState.botBusy=true;updateBotStartAvailability();try{const data=await botRequest('/api/bot/emergency',{method:'POST',body:'{}'});botState.botActive=false;botState.emergencyLatched=true;$('botStatusText').textContent=data.status;$('botOrderState').textContent=data.managedPosition?'Clôture non confirmée':'Bot arrêté';$('botStartButton').disabled=true;toast(data.status);}catch(error){toast('Arrêt d’urgence non confirmé : '+error.message);}finally{botState.botBusy=false;updateBotStartAvailability();}});
+  await refreshBotStatus();renderBotExposure();await refreshBotMarket();
+}
+function setupMainTabs(){
+  const eventTab=$('eventFuturesTab'),botTab=$('perpetualBotTab'),eventPanel=$('top'),botPanel=$('perpBotView');
+  const showBot=enabled=>{eventTab.classList.toggle('active',!enabled);botTab.classList.toggle('active',enabled);eventTab.setAttribute('aria-selected',String(!enabled));botTab.setAttribute('aria-selected',String(enabled));eventTab.tabIndex=enabled?-1:0;botTab.tabIndex=enabled?0:-1;eventPanel.hidden=enabled;eventPanel.classList.toggle('hidden',enabled);botPanel.hidden=!enabled;botPanel.classList.toggle('hidden',!enabled);$('headerMarketPill').innerHTML=enabled?'<i></i> '+botSymbol().replace('_',' / '):'<i></i> '+eventMarkets.find(m=>m.symbol===activeMarketSymbol)?.label;$('mainFooterText').textContent=enabled?botSymbol()+' · Perpétuel USDT':(eventMarkets.find(m=>m.symbol===activeMarketSymbol)?.label||activeMarketSymbol.replace('_',' / '))+' · Event Futures 10 min';if(enabled)drawBotChart();};
+  eventTab.addEventListener('click',()=>showBot(false));botTab.addEventListener('click',()=>showBot(true));
+  $('eventMarketTabs').addEventListener('click',event=>{const button=event.target.closest('[data-event-market]');if(button)activateEventMarket(button.dataset.eventMarket);});$('eventMarketTabs').addEventListener('keydown',event=>{if(!['ArrowLeft','ArrowRight'].includes(event.key))return;const tabs=[...$('eventMarketTabs').querySelectorAll('[role="tab"]')],index=tabs.indexOf(document.activeElement),next=(index+(event.key==='ArrowRight'?1:-1)+tabs.length)%tabs.length;event.preventDefault();tabs[next]?.focus();tabs[next]?.click();});
+  $('refreshButton').addEventListener('click',()=>{if(!botPanel.hidden){refreshBotMarket();refreshBotAccount();}});
+}
+function renderEventMarketTabs(){const nav=$('eventMarketTabs');nav.replaceChildren(...eventMarkets.map((market,index)=>{const button=document.createElement('button');button.type='button';button.className='event-market-tab'+(market.symbol===activeMarketSymbol?' active':'');button.role='tab';button.setAttribute('aria-selected',String(market.symbol===activeMarketSymbol));button.tabIndex=market.symbol===activeMarketSymbol?0:-1;button.dataset.eventMarket=market.symbol;button.textContent=market.label;button.setAttribute('aria-controls','top');return button;}));}
+function applyEventMarketLabels(){const market=eventMarkets.find(m=>m.symbol===activeMarketSymbol);if(!market)return;const label=market.label,pair=activeMarketSymbol.replace('_','/');document.title='Event Futures · '+label;$('eventMarketHeading').textContent=label;$('eventMarketMicro').textContent=label;$('eventChartPair').textContent=pair+' · 1 MINUTE';$('eventChartCard').setAttribute('aria-label','Graphique '+label+' 1 minute');$('headerMarketPill').innerHTML='<i></i> '+label;$('mainFooterText').textContent=label+' · Event Futures 10 min';}
+async function activateEventMarket(symbol,initial=false){if(!eventMarkets.some(m=>m.symbol===symbol))return;if(!initial&&symbol===activeMarketSymbol)return;if(!initial)stopScan('stopped');for(const timer of [state.indexHeartbeat,state.indexWatchdog])clearInterval(timer);clearTimeout(state.indexReconnectTimer);clearTimeout(state.spotReconnectTimer);const oldIndex=state.indexSocket,oldSpot=state.socket;state.indexSocket=null;state.socket=null;oldIndex?.close();oldSpot?.close();activeMarketSymbol=symbol;localStorage.setItem('eventlab-market-symbol',symbol);state.candles={};state.indexCandles={};state.indexFetchedAt={};state.lastPrice=null;state.lastTradeAt=0;state.lastReceivedAt=0;state.lastTradeLatency=null;state.spotPrice=null;state.spotTradeAt=0;state.spotReceivedAt=0;state.spotLatency=null;state.lastCandleFetchAt=0;state.candleError=null;state.analysis=null;state.preSignal=null;state.operationalSignal=null;state.pendingSide=null;state.pendingSince=0;state.signalCooldownUntil=0;state.indexReconnectAttempt=0;clockSyncedAt=0;serverClockOffset=0;renderEventMarketTabs();applyEventMarketLabels();renderPriceStatus();drawChart();decisionFreshness();syncClock();loadCandles();connectStream();connectMexcIndex();}
+async function loadEventMarkets(){try{const response=await fetch('./event-markets.json',{cache:'no-store'});if(!response.ok)throw new Error('market_config_unavailable');const config=await response.json();eventMarkets=(Array.isArray(config.markets)?config.markets:[]).filter(m=>m&&['BTC_USDT','ETH_USDT'].includes(m.symbol)&&typeof m.label==='string');if(!eventMarkets.length)throw new Error('market_config_empty');if(!eventMarkets.some(m=>m.symbol===activeMarketSymbol))activeMarketSymbol=eventMarkets[0].symbol;$('marketConfigNote').textContent='Catalogue MEXC vérifié manuellement le '+config.verifiedOn+' · mise à jour contrôlée dans event-markets.json';renderEventMarketTabs();await activateEventMarket(activeMarketSymbol,true);}catch{$('marketConfigNote').textContent='Catalogue local indisponible · marchés Event Futures non chargés';setConnection('bad','Catalogue des marchés indisponible');}}
 function installHandlers() {
-  $('refreshButton').addEventListener('click', () => { loadCandles(); toast('Actualisation des chandelles demandée.'); });
+  $('refreshButton').addEventListener('click', () => { if($('perpBotView').hidden){loadCandles();toast('Actualisation des chandelles demandée.');} });
   $('signalWindowInput').value=String(state.goValiditySeconds);$('signalWindowValue').textContent=state.goValiditySeconds+' s';$('signalWindowInput').addEventListener('input',()=>{state.goValiditySeconds=Number($('signalWindowInput').value);$('signalWindowValue').textContent=state.goValiditySeconds+' s';localStorage.setItem('eventlab-go-validity',String(state.goValiditySeconds));});
   $('positionUpButton').addEventListener('click',()=>addPosition('up')); $('positionDownButton').addEventListener('click',()=>addPosition('down'));
   $('prudenceInput').value=String(state.prudence); $('prudenceValue').textContent=state.prudence+' / 100'; $('prudenceInput').addEventListener('input',()=>{state.prudence=Number($('prudenceInput').value);$('prudenceValue').textContent=state.prudence+' / 100';localStorage.setItem('eventlab-prudence',String(state.prudence));if(state.candles['1m']){state.analysis=analyze();renderAnalysis();}});
   $('scanStartButton').addEventListener('click',startScan); $('scanPauseButton').addEventListener('click',()=>{stopScan('paused');}); $('scanStopButton').addEventListener('click',()=>{stopScan('stopped');}); $('soundEnableButton').addEventListener('click',async()=>{try{const voices=window.speechSynthesis?.getVoices?.()||[],hasFrenchVoice=voices.some(v=>/^fr([-_]|$)/i.test(v.lang));if(!hasFrenchVoice){state.soundEnabled=false;$('soundEnableButton').textContent='Voix française indisponible · décompte visuel actif';return;}const AudioContextType=window.AudioContext||window.webkitAudioContext;if(AudioContextType){state.audio=new AudioContextType();await state.audio.resume();}state.soundEnabled=true;$('soundEnableButton').textContent='Voix française activée';$('soundEnableButton').disabled=true;renderScanControls();}catch{$('scanStatus').textContent='Voix française indisponible · décompte visuel actif.';}}); renderScanControls();
   setupWallet();
+  setupMainTabs();setupBot();
 
   $('clearJournal').addEventListener('click', () => { state.journal = []; persistJournal(); toast('Journal effacé sur cet appareil.'); });
   $('journalList').addEventListener('click', event => { const button = event.target.closest('[data-result]'); if (button) markResult(button.dataset.id, button.dataset.result,button.dataset.source||'manual'); });
   window.addEventListener('beforeinstallprompt', event => { event.preventDefault(); state.installPrompt = event; $('installButton').classList.remove('hidden'); });
   $('installButton').addEventListener('click', async () => { if (!state.installPrompt) return; state.installPrompt.prompt(); await state.installPrompt.userChoice; state.installPrompt = null; $('installButton').classList.add('hidden'); });
   window.addEventListener('appinstalled', () => { $('installButton').classList.add('hidden'); toast('Application installée.'); });
-  document.addEventListener('visibilitychange', () => { if(document.visibilityState==='visible'){loadCandles();if(!state.socket||state.socket.readyState>1)connectStream();if(!state.indexSocket||state.indexSocket.readyState>1)connectMexcIndex();} });
+  document.addEventListener('visibilitychange', () => { if(document.visibilityState==='visible'&&$('perpBotView').hidden){loadCandles();syncClock();if(!state.socket||state.socket.readyState>1)connectStream();if(!state.indexSocket||state.indexSocket.readyState>1)connectMexcIndex();} });
   window.addEventListener('resize', drawChart);
 }
 
-installHandlers(); renderJournal(); loadCandles(); connectStream(); connectMexcIndex(); syncClock();
-setInterval(loadCandles, 60_000); setInterval(syncClock, 120_000); setInterval(refreshWallet, 30_000); setInterval(processScan, 250);
+installHandlers(); renderJournal();
+window.__eventFuturesSmokeReady=loadEventMarkets();
+window.__eventFuturesSmoke=async()=>{await window.__eventFuturesSmokeReady;if(eventMarkets.length!==2||!eventMarkets.some(m=>m.symbol==='BTC_USDT')||!eventMarkets.some(m=>m.symbol==='ETH_USDT'))throw new Error('Catalogue crypto BTC/ETH incomplet.');const results=[];for(const market of eventMarkets){await activateEventMarket(market.symbol);const deadline=Date.now()+45_000;while(Date.now()<deadline&&(!fresh()||!state.analysis?.ready)){await new Promise(resolve=>setTimeout(resolve,500));}if(!fresh()||!state.analysis?.ready||!state.lastPrice||!state.indexCandles['1m']?.length)throw new Error(market.symbol+' : '+(freshnessIssue()||'analyse ou chandelles absentes'));results.push({symbol:market.symbol,price:state.lastPrice,candles1m:state.indexCandles['1m'].length,fresh:true});}return{ok:true,results};};
+setInterval(()=>{if($('perpBotView').hidden)loadCandles();}, 30_000); setInterval(()=>{if($('perpBotView').hidden)syncClock();}, 120_000); setInterval(refreshWallet, 30_000); setInterval(()=>{if(!$('perpBotView').hidden){refreshBotMarket();refreshBotAccount();}},30_000);setInterval(()=>{if(!$('perpBotView').hidden)refreshBotStatus();},2_000);setInterval(processScan, 250);
 setInterval(() => { renderPriceStatus(); decisionFreshness(); updateCountdown(); settleJournal(); }, 1_000);
-if ('serviceWorker' in navigator) window.addEventListener('load', () => {navigator.serviceWorker.addEventListener('controllerchange',()=>{const build='eventlab-worker-v2';if(sessionStorage.getItem('eventlab-worker-build')!==build){sessionStorage.setItem('eventlab-worker-build',build);location.reload();}});navigator.serviceWorker.register('./sw.js').then(registration=>registration.update()).catch(() => {});});
+if ('serviceWorker' in navigator) window.addEventListener('load', () => {navigator.serviceWorker.addEventListener('controllerchange',()=>{const build='eventlab-worker-v4';if(sessionStorage.getItem('eventlab-worker-build')!==build){sessionStorage.setItem('eventlab-worker-build',build);location.reload();}});navigator.serviceWorker.register('./sw.js').then(registration=>registration.update()).catch(() => {});});
 
