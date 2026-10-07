@@ -14,9 +14,9 @@ const PORT = 4174;
 const HOST = '127.0.0.1';
 const APP_URL = `http://${HOST}:${PORT}/`;
 if (smokeTest) setTimeout(() => {
-  console.error('SMOKE_TEST_TIMEOUT: application did not complete within 180 seconds.');
+  console.error('SMOKE_TEST_TIMEOUT: packaged local market service did not pass within 45 seconds.');
   app.exit(1);
-}, 180_000);
+}, 45_000);
 const credentialsPath = () => path.join(app.getPath('userData'), 'mexc-credentials.secure');
 const botCredentialsPath = () => path.join(app.getPath('userData'), 'mexc-trading-credentials.secure');
 const singleInstance = app.requestSingleInstanceLock();
@@ -134,6 +134,22 @@ if (!singleInstance) {
       await new Promise(resolve => setTimeout(resolve, 150));
     }
     throw new Error('Le serveur local n’a pas répondu à temps.');
+  }
+
+  async function verifyPackagedMarketData() {
+    for (const symbol of ['BTC_USDT', 'ETH_USDT']) {
+      const timeResponse = await fetch(`${APP_URL}api/market/time?symbol=${symbol}`, { signal:AbortSignal.timeout(10_000), cache:'no-store' });
+      if (!timeResponse.ok) throw new Error(`${symbol} : horloge MEXC indisponible (HTTP ${timeResponse.status}).`);
+      const timeData = await timeResponse.json();
+      if (!Number.isFinite(Number(timeData.serverTime)) || Math.abs(Date.now() - Number(timeData.serverTime)) > 30_000) throw new Error(`${symbol} : horloge MEXC invalide.`);
+      const candleResponse = await fetch(`${APP_URL}api/market/candles?source=index&symbol=${symbol}&tf=1m`, { signal:AbortSignal.timeout(15_000), cache:'no-store' });
+      if (!candleResponse.ok) throw new Error(`${symbol} : chandelles d’index indisponibles (HTTP ${candleResponse.status}).`);
+      const candleBody = await candleResponse.json(), times = candleBody?.data?.time;
+      if (candleBody?.success !== true || !Array.isArray(times) || times.length < 20) throw new Error(`${symbol} : chandelles d’index incomplètes.`);
+      const ageSeconds = Date.now() / 1000 - Number(times.at(-1));
+      if (!Number.isFinite(ageSeconds) || ageSeconds < -30 || ageSeconds > 120) throw new Error(`${symbol} : dernière chandelle trop ancienne (${Math.round(ageSeconds)} s).`);
+      console.log(`SMOKE_MARKET_OK ${symbol} time=${timeData.source} candles=${times.length} age_s=${Math.round(ageSeconds)}`);
+    }
   }
 
   function createWindow() {
@@ -312,6 +328,12 @@ if (!singleInstance) {
       await restoreCredentialFile(serverModule);
       await restoreBotCredentialFile(serverModule);
       await waitForLocalApp();
+      if (smokeTest) {
+        await verifyPackagedMarketData();
+        console.log('SMOKE_TEST_OK packaged local service and live MEXC index data');
+        app.exit(0);
+        return;
+      }
       createWindow();
       if (!smokeTest) setTimeout(checkForUpdates, 1_200);
     } catch (error) {
