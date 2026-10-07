@@ -52,7 +52,7 @@ async function fetchMexcAssets(credentials) {
 }
 function allowedBotSymbol(value) { return value === 'BTC_USDT' || value === 'RIVER_USDT'; }
 function allowedEventSymbol(value) { return eventMarkets.includes(value); }
-async function fetchMexcPublic(url) {
+async function fetchMexcPublic(url, validateData = () => true) {
   const parsed = new URL(url);
   const bases = parsed.hostname === 'api.mexc.com' ? ['https://api.mexc.com', 'https://contract.mexc.com'] : [parsed.origin];
   let lastError;
@@ -67,7 +67,7 @@ async function fetchMexcPublic(url) {
       }
       // MEXC may return HTTP 200 with an invalid/empty payload on one gateway.
       // Treat that as a failed gateway and try the alternate public hostname.
-      if (!body || body.success !== true) {
+      if (!body || body.success !== true || !validateData(body.data)) {
         lastError = new Error('mexc_response_invalid');
         continue;
       }
@@ -292,7 +292,7 @@ export const server = http.createServer(async (req, res) => {
       let upstream;
       if(source==='spot'){upstream='https://data-api.binance.vision/api/v3/klines?symbol='+symbol.replace('_','')+'&interval='+tf+'&limit=120';}
       else{const mins=allowed[tf],interval=mins===1?'Min1':mins===5?'Min5':mins===15?'Min15':mins===60?'Min60':'Hour4',end=Math.floor(Date.now()/1000),start=end-mins*60*125;upstream='https://api.mexc.com/api/v1/contract/kline/index_price/'+encodeURIComponent(symbol)+'?interval='+interval+'&start='+start+'&end='+end;}
-      if(source==='index'){const data=await fetchMexcPublic(upstream);return apiReply(res,200,{success:true,data});}
+      if(source==='index'){const data=await fetchMexcPublic(upstream,value=>Array.isArray(value?.time)&&value.time.length>0);return apiReply(res,200,{success:true,data});}
       const response=await fetch(upstream,{signal:AbortSignal.timeout(10000),headers:{'Accept':'application/json'}});if(!response.ok)throw new Error('upstream');const data=await response.json();return apiReply(res,200,data);
     }catch(error){const code=error?.cause?.code||error?.code||error?.name||'unknown';console.error('[market-candles] MEXC public endpoint failed:',code);return apiReply(res,502,{error:'Chandelles publiques momentanément indisponibles.',code});}
   }
