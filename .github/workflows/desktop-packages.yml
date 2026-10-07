@@ -95,14 +95,14 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Récupérer les notes de version
+        uses: actions/checkout@v4
       - name: Récupérer tous les installateurs
         uses: actions/download-artifact@v4
         with:
           path: installateurs
           pattern: event-futures-*
           merge-multiple: true
-      - name: Récupérer les notes de version
-        uses: actions/checkout@v4
       - name: Créer la version brouillon avec les notes
         uses: softprops/action-gh-release@v2
         with:
