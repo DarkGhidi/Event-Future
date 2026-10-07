@@ -8,6 +8,7 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="bot-activity.css">
   <title>Event Futures · BTC / USDT</title>
 </head>
 <body>
@@ -43,7 +44,7 @@
 
 
 
-      <section id="eventChartCard" class="chart-card" aria-label="Graphique 1 minute"><div class="chart-head"><div><div id="eventChartPair" class="micro-label">BTC/USDT · 1 MINUTE</div><strong>Indice MEXC · chandelles et bandes</strong></div><span class="chart-caption">60 dernières chandelles</span></div><canvas id="priceChart" height="220" aria-label="Chandelles de l’indice MEXC sur 1 minute avec bandes de Bollinger"></canvas></section>
+      <section id="eventChartCard" class="chart-card" aria-label="Graphique 1 minute"><div class="chart-head"><div><div id="eventChartPair" class="micro-label">BTC/USDT · 1 MINUTE</div><strong id="eventChartSource">Indice MEXC · chandelles et bandes</strong></div><span class="chart-caption">60 dernières chandelles</span></div><canvas id="priceChart" height="220" aria-label="Chandelles du marché sur 1 minute avec bandes de Bollinger"></canvas></section>
       <details class="market-structure"><summary>Structure de marché · support et résistance</summary><div class="structure-grid"><div><span>Support le plus proche</span><strong id="event-support">En attente des chandelles MEXC</strong></div><div><span>Résistance la plus proche</span><strong id="event-resistance">En attente des chandelles MEXC</strong></div><p>Zones estimées à partir de pivots confirmés (2 chandelles de part et d’autre) sur 1 min à 4 h. Les chandelles de l’indice MEXC ne fournissent pas de volume exploitable ici; liquidité non mesurée.</p></div></details>
 
       <section class="market-strip" aria-label="Indicateurs utiles">
@@ -123,6 +124,13 @@
         <details class="bot-indicators"><summary>Structure et contexte du contrat</summary><div class="bot-indicator-grid"><div><span>MACD (12, 26, 9)</span><strong id="botMacdValue">—</strong></div><div><span>Support estimé · pivots confirmés</span><strong id="botSupport">—</strong></div><div><span>Résistance estimée · pivots confirmés</span><strong id="botResistance">—</strong></div><div><span>ATR 14 · volatilité 1 min</span><strong id="botAtr">—</strong></div><div><span>Volume 24 h · MEXC</span><strong id="botVolume24">—</strong></div><div><span>Montant 24 h · MEXC</span><strong id="botAmount24">—</strong></div><div><span>Positions ouvertes · holdVol</span><strong id="botOpenInterest">—</strong></div><div><span>Funding · perpétuels uniquement</span><strong id="botFunding">—</strong></div><div><span>Fibonacci 38,2 %</span><strong id="botFib382">—</strong></div><div><span>Fibonacci 50 %</span><strong id="botFib500">—</strong></div><div><span>Fibonacci 61,8 %</span><strong id="botFib618">—</strong></div></div><p class="structure-note">Entrée uniquement après MACD 1 min + tendance 5/15 min. Filtres bloquants : contexte de volume 1 min et 24 h, volume négocié, open interest, financement, ATR dans la plage admise et absence d’un pivot opposé à moins de 0,75 ATR. Si une donnée manque, aucun ordre. Les zones sont estimées à partir de pivots clôturés.</p></details>
       </section>
 
+      <section class="bot-activity-card" aria-labelledby="botActivityTitle" aria-live="polite">
+        <div class="bot-activity-heading"><div><div class="eyebrow">SUIVI DU BOT</div><h2 id="botActivityTitle">Recherche et protections</h2></div><span id="botSearchPhase" class="bot-search-phase">Bot arrêté</span></div>
+        <div class="bot-search-snapshot"><div><span>Dernière analyse</span><strong id="botSearchTime">—</strong></div><div><span>Prix MEXC</span><strong id="botSearchPrice">—</strong></div><div><span>MACD 1 min</span><strong id="botSearchMacd">—</strong></div><div><span>Tendance 5 / 15 min</span><strong id="botSearchTrend">—</strong></div></div>
+        <ol id="botActivityList" class="bot-activity-list"><li class="bot-activity-empty">Les recherches, entrées et ajustements confirmés apparaîtront ici.</li></ol>
+        <p class="bot-activity-note">Les niveaux affichés sont ceux relus depuis MEXC. Si aucune mise à jour n’est confirmée, l’application l’indique et suspend le suivi automatique.</p>
+      </section>
+
       <details class="bot-advanced">
         <summary>Connexion, limites et sécurité</summary>
         <div class="bot-advanced-content">
@@ -146,3 +154,4 @@
   <script src="app.js" defer></script>
 </body>
 </html>
+

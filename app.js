@@ -121,11 +121,12 @@ async function syncClock() {
   try {
     const before = Date.now(), response = await fetch(TIME_API+'?symbol='+encodeURIComponent(activeMarketSymbol), { cache: 'no-store' });
     if (!response.ok) throw new Error('Clock unavailable');
-    const body = await response.json(), after = Date.now();
-    serverClockOffset = Number(body.serverTime) - (before + after) / 2;
+    const body = await response.json(), after = Date.now(), serverTime=Number(body.serverTime);
+    if(!Number.isFinite(serverTime)||serverTime<1_500_000_000_000||after-before>8_000)throw new Error('Clock sample invalid');
+    serverClockOffset = serverTime - (before + after) / 2;
     clockSyncedAt = after;
     if(state.analysis?.ready)renderAnalysis();
-  } catch { /* Freshness checks block recommendations when the time reference expires. */ }
+  } catch { if(state.analysis?.ready)renderAnalysis(); /* Freshness checks keep recommendations blocked until MEXC time is confirmed. */ }
 }
 async function loadCandles() {
  if(state.busy){if(state.busySymbol!==activeMarketSymbol)state.reloadRequested=true;return;}state.busy=true;state.busySymbol=activeMarketSymbol;
@@ -199,7 +200,7 @@ function decisionFreshness() {
   disableActions();
 }
 function drawChart() {
-  const canvas = $('priceChart'), candles = (state.indexCandles['1m'] || []).slice(-60);
+  const canvas = $('priceChart'),indexCandles=state.indexCandles['1m']||[],useIndex=indexCandles.length>0,candles=(useIndex?indexCandles:(state.candles['1m']||[])).slice(-60);$('eventChartSource').textContent=useIndex?'Indice MEXC · chandelles et bandes':'Binance au comptant · aperçu uniquement · signaux bloqués';
   if (!canvas) return;
   const rect = canvas.getBoundingClientRect(), ratio = window.devicePixelRatio || 1, width = Math.max(300, rect.width), height = rect.height || 220;
   canvas.width = width * ratio; canvas.height = height * ratio;
@@ -514,7 +515,8 @@ function renderBotAccount(data) {
   updateBotStartAvailability();
 }
 async function refreshBotAccount(){try{const data=await botRequest('/api/bot/account');renderBotAccount(data);}catch(error){botState.accountConnected=false;botState.availableUsdt=null;$('botAccountStatus').textContent='Lecture MEXC indisponible';$('botAccountDetails').textContent=error.message;updateBotStartAvailability();}}
-async function refreshBotStatus(){try{const data=await botRequest('/api/bot/status');botState.botActive=!!data.active;$('botStatusText').textContent=data.status||'Bot arrêté';$('botOrderState').textContent=data.managedPosition?'Position MEXC suivie':'Aucun ordre en cours';if(data.active)$('botExitState').textContent='SL / TP MEXC · trailing en suivi';else if(data.status?.includes('Intervention manuelle'))$('botExitState').textContent='Vérification MEXC requise';updateBotStartAvailability();}catch{}}
+function renderBotActivity(data){const search=data.search;$('botSearchPhase').textContent=search?.label||(data.active?'En attente de données MEXC':'Bot arrêté');$('botSearchTime').textContent=search?.checkedAt?time(search.checkedAt):'—';$('botSearchPrice').textContent=Number.isFinite(Number(search?.price))?price(Number(search.price)):'—';$('botSearchMacd').textContent=search?.macd?search.macd.toUpperCase():'Aucun croisement';$('botSearchTrend').textContent=(search?.trend5||'—').toUpperCase()+' / '+(search?.trend15||'—').toUpperCase();const list=$('botActivityList'),events=Array.isArray(data.events)?data.events.slice(0,30):[];if(!events.length){list.innerHTML='<li class="bot-activity-empty">Les recherches, entrées et ajustements confirmés apparaîtront ici.</li>';return;}list.innerHTML=events.map(event=>{const label=String(event.label||'Événement').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])),detail=String(event.detail||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])),levels=[Number.isFinite(Number(event.stopLoss))&&event.stopLoss!==null?'SL '+price(Number(event.stopLoss)):null,Number.isFinite(Number(event.takeProfit))&&event.takeProfit!==null?'TP '+price(Number(event.takeProfit)):null].filter(Boolean).join(' · ');return'<li class="bot-activity-item type-'+String(event.type||'event').replace(/[^a-z-]/g,'')+'"><time>'+time(Number(event.at))+'</time><div><strong>'+label+'</strong>'+(detail?'<span>'+detail+'</span>':'')+(levels?'<small>'+levels+'</small>':'')+'</div>'+(Number.isFinite(Number(event.price))&&event.price!==null?'<b>'+price(Number(event.price))+'</b>':'')+'</li>';}).join('');}
+async function refreshBotStatus(){try{const data=await botRequest('/api/bot/status');botState.botActive=!!data.active;$('botStatusText').textContent=data.status||'Bot arrêté';$('botOrderState').textContent=data.managedPosition?'Position MEXC suivie':'Aucun ordre en cours';if(data.active)$('botExitState').textContent='SL / TP MEXC · trailing en suivi';else if(data.status?.includes('Intervention manuelle'))$('botExitState').textContent='Vérification MEXC requise';renderBotActivity(data);updateBotStartAvailability();}catch{}}
 async function setupBot() {
   const native=window.eventFuturesNative, local=['localhost','127.0.0.1'].includes(location.hostname), storage=native?.getBotCredentialStorageStatus?await native.getBotCredentialStorageStatus():{available:false,saved:false};
   botState.storageAvailable=!!(local&&storage.available);
@@ -564,7 +566,8 @@ function installHandlers() {
 installHandlers(); renderJournal();
 window.__eventFuturesSmokeReady=loadEventMarkets();
 window.__eventFuturesSmoke=async()=>{await window.__eventFuturesSmokeReady;if(eventMarkets.length!==2||!eventMarkets.some(m=>m.symbol==='BTC_USDT')||!eventMarkets.some(m=>m.symbol==='ETH_USDT'))throw new Error('Catalogue crypto BTC/ETH incomplet.');const results=[];for(const market of eventMarkets){await activateEventMarket(market.symbol);const deadline=Date.now()+45_000;while(Date.now()<deadline&&(!fresh()||!state.analysis?.ready)){await new Promise(resolve=>setTimeout(resolve,500));}if(!fresh()||!state.analysis?.ready||!state.lastPrice||!state.indexCandles['1m']?.length)throw new Error(market.symbol+' : '+(freshnessIssue()||'analyse ou chandelles absentes'));results.push({symbol:market.symbol,price:state.lastPrice,candles1m:state.indexCandles['1m'].length,fresh:true});}return{ok:true,results};};
-setInterval(()=>{if($('perpBotView').hidden)loadCandles();}, 30_000); setInterval(()=>{if($('perpBotView').hidden)syncClock();}, 120_000); setInterval(refreshWallet, 30_000); setInterval(()=>{if(!$('perpBotView').hidden){refreshBotMarket();refreshBotAccount();}},30_000);setInterval(()=>{if(!$('perpBotView').hidden)refreshBotStatus();},2_000);setInterval(processScan, 250);
+setInterval(()=>{if($('perpBotView').hidden)loadCandles();}, 30_000); setInterval(()=>{if($('perpBotView').hidden&&(!clockSyncedAt||Date.now()-clockSyncedAt>60_000))syncClock();}, 15_000); setInterval(refreshWallet, 30_000); setInterval(()=>{if(!$('perpBotView').hidden){refreshBotMarket();refreshBotAccount();}},30_000);setInterval(()=>{if(!$('perpBotView').hidden)refreshBotStatus();},2_000);setInterval(processScan, 250);
 setInterval(() => { renderPriceStatus(); decisionFreshness(); updateCountdown(); settleJournal(); }, 1_000);
-if ('serviceWorker' in navigator) window.addEventListener('load', () => {navigator.serviceWorker.addEventListener('controllerchange',()=>{const build='eventlab-worker-v4';if(sessionStorage.getItem('eventlab-worker-build')!==build){sessionStorage.setItem('eventlab-worker-build',build);location.reload();}});navigator.serviceWorker.register('./sw.js').then(registration=>registration.update()).catch(() => {});});
+if ('serviceWorker' in navigator) window.addEventListener('load', () => {navigator.serviceWorker.addEventListener('controllerchange',()=>{const build='eventlab-worker-v5';if(sessionStorage.getItem('eventlab-worker-build')!==build){sessionStorage.setItem('eventlab-worker-build',build);location.reload();}});navigator.serviceWorker.register('./sw.js').then(registration=>registration.update()).catch(() => {});});
+
 

@@ -7,11 +7,15 @@ const path = require('node:path');
 const { pipeline } = require('node:stream/promises');
 const { pathToFileURL } = require('node:url');
 const updateConfig = require('./update-config.json');
-const smokeTest = process.argv.includes('--smoke-test');
+const smokeTest = process.argv.includes('--smoke-test') || process.env.EVENT_FUTURES_SMOKE_TEST === '1';
 
 const PORT = 4174;
 const HOST = '127.0.0.1';
 const APP_URL = `http://${HOST}:${PORT}/`;
+if (smokeTest) setTimeout(() => {
+  console.error('SMOKE_TEST_TIMEOUT: application did not complete within 180 seconds.');
+  app.exit(1);
+}, 180_000);
 const credentialsPath = () => path.join(app.getPath('userData'), 'mexc-credentials.secure');
 const botCredentialsPath = () => path.join(app.getPath('userData'), 'mexc-trading-credentials.secure');
 const singleInstance = app.requestSingleInstanceLock();
@@ -146,7 +150,7 @@ if (!singleInstance) {
         contextIsolation: true,
         nodeIntegration: false,
         sandbox: true,
-        backgroundThrottling: false
+        backgroundThrottling: !smokeTest
       }
     });
 
@@ -286,6 +290,7 @@ if (!singleInstance) {
       process.env.PORT = String(PORT);
       process.env.HOST = HOST;
       process.env.EVENT_FUTURES_DESKTOP = '1';
+      process.env.EVENT_FUTURES_DATA_DIR = app.getPath('userData');
       const serverPath = pathToFileURL(path.resolve(__dirname, '..', 'server.mjs')).href;
       const serverModule = await import(serverPath);
       localServer = serverModule.server;
@@ -298,14 +303,14 @@ if (!singleInstance) {
       await restoreCredentialFile(serverModule);
       await restoreBotCredentialFile(serverModule);
       await waitForLocalApp();
+      createWindow();
+      if (!smokeTest) setTimeout(checkForUpdates, 1_200);
+    } catch (error) {
       if (smokeTest) {
-        console.log('Vérification locale réussie.');
-        localServer.close(() => app.quit());
+        console.error('SMOKE_TEST_STARTUP_FAILED ' + String(error?.stack || error));
+        app.exit(1);
         return;
       }
-      createWindow();
-      setTimeout(checkForUpdates, 1_200);
-    } catch (error) {
       dialog.showErrorBox('Event Futures ne peut pas démarrer', 'Le serveur local n’a pas pu démarrer. Fermez les autres instances et réessayez.');
       app.quit();
     }
@@ -323,3 +328,4 @@ if (!singleInstance) {
     if (process.platform !== 'darwin') app.quit();
   });
 }
+

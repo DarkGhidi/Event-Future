@@ -1,6 +1,6 @@
 {
   "name": "event-futures-desktop",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "private": true,
   "description": "Application locale d’analyse MEXC Event Futures BTC et ETH et de suivi Futures",
   "author": "Event/Lab",
@@ -30,6 +30,7 @@
       "app.js",
       "index.html",
       "styles.css",
+      "bot-activity.css",
       "manifest.webmanifest",
       "event-markets.json",
       "icon.svg",
@@ -81,3 +82,4 @@
     }
   }
 }
+
