@@ -15,7 +15,7 @@ let state = {
   candles: {}, indexCandles:{}, lastPrice:null, lastTradeAt:0, lastReceivedAt:0, lastTradeLatency:null,
   spotPrice:null, spotTradeAt:0, spotReceivedAt:0, spotLatency:null, socket:null, indexSocket:null,
   indexReconnectAttempt:0,indexHeartbeat:null,indexWatchdog:null,indexReconnectTimer:null,spotReconnectTimer:null,indexLastMessageAt:0,indexFallbackBusy:false,
-  busySymbol:null,reloadRequested:false,lastCandleFetchAt:0,candleRetryTimer:null,indexFetchedAt:{}, marketGap:false, candleError:null, installPrompt:null, analysis:null,
+  busySymbol:null,reloadRequested:false,lastCandleFetchAt:0,candleRetryTimer:null,indexFetchedAt:{}, marketGap:false, candleError:null,clockError:null,streamError:null,feedRetryBusy:false, installPrompt:null, analysis:null,
   journal:readJournal(),signalEvents:readSignalEvents(),prudence:Math.max(0,Math.min(100,Number(localStorage.getItem('eventlab-prudence')||70))),displayedAction:null,walletBusy:false,scanMode:'stopped',pendingSide:null,pendingSince:0,lastSpokenSide:null,lastAlertAt:{},soundEnabled:false,audio:null,preSignal:null,operationalSignal:null,lastPopupSignal:null,signalCooldownUntil:0,goValiditySeconds:Math.max(15,Math.min(45,Number(localStorage.getItem('eventlab-go-validity')||30)))
 };
 const timeframes = { '1m': 1, '5m': 5, '15m': 15, '1h': 60, '4h': 240 };
@@ -122,31 +122,48 @@ async function syncClock() {
     const symbol=encodeURIComponent(activeMarketSymbol);
     const samples=await Promise.allSettled([0,1,2].map(async()=>{
       const before=Date.now(),response=await fetch(TIME_API+'?symbol='+symbol,{cache:'no-store',signal:AbortSignal.timeout(8_000)});
-      if(!response.ok)throw new Error('Clock unavailable');
-      const body=await response.json(),after=Date.now(),serverTime=Number(body.serverTime),rtt=after-before;
-      if(!Number.isFinite(serverTime)||serverTime<1_500_000_000_000||rtt>8_000)throw new Error('Clock sample invalid');
+      const body=await response.json().catch(()=>({}));
+      if(!response.ok)throw Object.assign(new Error(body.error||'Référence horaire MEXC indisponible.'),{code:body.code||'HTTP_'+response.status});
+      const after=Date.now(),serverTime=Number(body.serverTime),rtt=after-before;
+      if(!Number.isFinite(serverTime)||serverTime<1_500_000_000_000||rtt>8_000)throw Object.assign(new Error('Horloge MEXC invalide.'),{code:'CLOCK_SAMPLE_INVALID'});
       return{offset:serverTime-(before+after)/2,rtt,receivedAt:after};
     }));
     const valid=samples.filter(item=>item.status==='fulfilled').map(item=>item.value).sort((a,b)=>a.rtt-b.rtt);
-    if(!valid.length)throw new Error('No valid MEXC clock sample');
-    const best=valid[0];serverClockOffset=best.offset;clockSyncedAt=best.receivedAt;
-    if(state.analysis?.ready)renderAnalysis();
-  } catch { if(state.analysis?.ready)renderAnalysis(); /* Keep recommendations blocked until a fresh MEXC clock sample is available. */ }
+    if(!valid.length)throw Object.assign(new Error('Aucune mesure valide de l’horloge MEXC.'),{code:samples.find(item=>item.status==='rejected')?.reason?.code||'MEXC_CLOCK_UNAVAILABLE'});
+    const best=valid[0];serverClockOffset=best.offset;clockSyncedAt=best.receivedAt;state.clockError=null;
+  } catch(error) { state.clockError=error?.code||error?.cause?.code||error?.name||'NETWORK_ERROR'; }
+  renderFeedDiagnostic();
+  if(state.analysis?.ready)renderAnalysis();
 }
+
 async function loadCandles() {
  if(state.busy){if(state.busySymbol!==activeMarketSymbol)state.reloadRequested=true;return;}state.busy=true;state.busySymbol=activeMarketSymbol;
  const requestedSymbol=activeMarketSymbol;
  try{
-  const tfs=Object.keys(timeframes),indexResults=await Promise.allSettled(tfs.map(async tf=>{const mins=timeframes[tf],response=await fetch(MEXC_INDEX_API+'&symbol='+encodeURIComponent(requestedSymbol)+'&tf='+tf,{cache:'no-store'});if(!response.ok)throw new Error(tf+' HTTP '+response.status);const body=await response.json();if(!body.success||!body.data?.time)throw new Error(tf+' chandelles indisponibles');const d=body.data,rows=d.time.map((t,i)=>({time:Number(t)*1000,open:Number(d.open[i]),high:Number(d.high[i]),low:Number(d.low[i]),close:Number(d.close[i]),volume:0,closeTime:(Number(t)+mins*60-1)*1000}));if(!rows.length)throw new Error(tf+' sans chandelles');return[tf,rows];}));
+  const tfs=Object.keys(timeframes),indexResults=await Promise.allSettled(tfs.map(async tf=>{
+    const mins=timeframes[tf],response=await fetch(MEXC_INDEX_API+'&symbol='+encodeURIComponent(requestedSymbol)+'&tf='+tf,{cache:'no-store',signal:AbortSignal.timeout(8_000)}),body=await response.json().catch(()=>({}));
+    if(!response.ok)throw Object.assign(new Error(tf+' chandelles HTTP '+response.status),{code:body.code||'HTTP_'+response.status});
+    if(!body.success||!body.data?.time)throw Object.assign(new Error(tf+' chandelles indisponibles'),{code:body.code||'MEXC_RESPONSE_INVALID'});
+    const d=body.data,rows=d.time.map((t,i)=>({time:Number(t)*1000,open:Number(d.open[i]),high:Number(d.high[i]),low:Number(d.low[i]),close:Number(d.close[i]),volume:0,closeTime:(Number(t)+mins*60-1)*1000}));
+    if(!rows.length)throw Object.assign(new Error(tf+' sans chandelles'),{code:'EMPTY_CANDLES'});
+    return[tf,rows];
+  }));
   if(requestedSymbol!==activeMarketSymbol)return;
-  const indexPairs=indexResults.filter(r=>r.status==='fulfilled').map(r=>r.value),failedTfs=indexResults.map((r,i)=>r.status==='rejected'?tfs[i]:null).filter(Boolean);
-  if(!indexPairs.length)throw new Error('Chandelles de l’indice MEXC indisponibles');
-  indexPairs.forEach(([tf,rows])=>{const live=state.indexCandles[tf]?.at(-1),freshLive=live&&Date.now()-live.time<timeframes[tf]*60_000&&live.time>=rows.at(-1)?.time;if(freshLive&&live.time===rows.at(-1)?.time)rows[rows.length-1]=live;else if(freshLive&&live.time>rows.at(-1)?.time)rows.push(live);state.indexCandles[tf]=rows;state.indexFetchedAt[tf]=Date.now();});state.candleError=failedTfs.length?'Chandelles MEXC incomplètes · horizon indisponible : '+failedTfs.join(', '):null;state.lastCandleFetchAt=Date.now();if(failedTfs.length){clearTimeout(state.candleRetryTimer);state.candleRetryTimer=setTimeout(()=>{if(requestedSymbol===activeMarketSymbol)loadCandles();},5000);}else clearTimeout(state.candleRetryTimer);
-  try{const spotPairs=await Promise.all(tfs.map(async tf=>{const response=await fetch(API+'&symbol='+encodeURIComponent(requestedSymbol.replace('_',''))+'&tf='+tf,{cache:'no-store'});if(!response.ok)throw new Error('HTTP '+response.status);const rows=await response.json();return[tf,rows.map(c=>({time:+c[0],open:+c[1],high:+c[2],low:+c[3],close:+c[4],volume:+c[5],closeTime:+c[6]}))];}));if(requestedSymbol!==activeMarketSymbol)return;spotPairs.forEach(([tf,rows])=>state.candles[tf]=rows);state.spotCandleError=null;}catch(error){if(requestedSymbol===activeMarketSymbol)state.spotCandleError=error.message;}
-  state.marketGap=false;state.analysis=analyze();renderAnalysis();
- }catch(error){if(requestedSymbol===activeMarketSymbol){state.candleError=error.message;renderAnalysis();clearTimeout(state.candleRetryTimer);state.candleRetryTimer=setTimeout(()=>{if(requestedSymbol===activeMarketSymbol)loadCandles();},5000);}}
+  const indexPairs=indexResults.filter(r=>r.status==='fulfilled').map(r=>r.value),failed=indexResults.map((r,i)=>r.status==='rejected'?{tf:tfs[i],error:r.reason}:null).filter(Boolean),failedTfs=failed.map(item=>item.tf);
+  if(!indexPairs.length)throw Object.assign(new Error('Chandelles de l’indice MEXC indisponibles'),{code:failed[0]?.error?.code||failed[0]?.error?.cause?.code||'MEXC_CANDLES_UNAVAILABLE'});
+  indexPairs.forEach(([tf,rows])=>{const live=state.indexCandles[tf]?.at(-1),freshLive=live&&Date.now()-live.time<timeframes[tf]*60_000&&live.time>=rows.at(-1)?.time;if(freshLive&&live.time===rows.at(-1)?.time)rows[rows.length-1]=live;else if(freshLive&&live.time>rows.at(-1)?.time)rows.push(live);state.indexCandles[tf]=rows;state.indexFetchedAt[tf]=Date.now();});
+  state.candleError=failed.length?failed.map(item=>item.tf+': '+(item.error?.code||item.error?.message||'indisponible')).join(' · '):null;
+  state.lastCandleFetchAt=Date.now();
+  if(failedTfs.length){clearTimeout(state.candleRetryTimer);state.candleRetryTimer=setTimeout(()=>{if(requestedSymbol===activeMarketSymbol)loadCandles();},5000);}else clearTimeout(state.candleRetryTimer);
+  try{
+    const spotPairs=await Promise.all(tfs.map(async tf=>{const response=await fetch(API+'&symbol='+encodeURIComponent(requestedSymbol.replace('_',''))+'&tf='+tf,{cache:'no-store',signal:AbortSignal.timeout(8_000)});if(!response.ok)throw new Error('HTTP '+response.status);const rows=await response.json();return[tf,rows.map(c=>({time:+c[0],open:+c[1],high:+c[2],low:+c[3],close:+c[4],volume:+c[5],closeTime:+c[6]}))];}));
+    if(requestedSymbol!==activeMarketSymbol)return;spotPairs.forEach(([tf,rows])=>state.candles[tf]=rows);state.spotCandleError=null;
+  }catch(error){if(requestedSymbol===activeMarketSymbol)state.spotCandleError=error?.name||error?.message||'NETWORK_ERROR';}
+  state.marketGap=false;state.analysis=analyze();renderAnalysis();renderFeedDiagnostic();
+ }catch(error){if(requestedSymbol===activeMarketSymbol){state.candleError=error?.code||error?.cause?.code||error?.name||'NETWORK_ERROR';renderAnalysis();renderFeedDiagnostic();clearTimeout(state.candleRetryTimer);state.candleRetryTimer=setTimeout(()=>{if(requestedSymbol===activeMarketSymbol)loadCandles();},5000);}}
  finally{state.busy=false;state.busySymbol=null;if(state.reloadRequested){state.reloadRequested=false;queueMicrotask(loadCandles);}}
 }
+
 function updateLiveMinuteCandle(tradeTime, tradePrice, quantity) {
   const candles = state.candles['1m']; if (!candles?.length) return;
   const start = Math.floor(tradeTime / 60_000) * 60_000, last = candles.at(-1);
@@ -187,20 +204,48 @@ async function pollMexcIndexFallback() {
     state.lastPrice=priceValue;state.lastTradeAt=normalizedTime;state.lastReceivedAt=received;
     state.lastTradeLatency=Math.max(0,received-(normalizedTime+serverClockOffset));
     updateMexcIndexCandles(normalizedTime,priceValue);state.analysis=analyze();settleSignalEvents();renderAnalysis();
-  }catch{}finally{state.indexFallbackBusy=false;}
+  }catch(error){state.streamError=error?.name||error?.code||'NETWORK_ERROR';renderFeedDiagnostic();}finally{state.indexFallbackBusy=false;}
 }
 function connectMexcIndex() {
   try {
     const socket=new WebSocket(MEXC_INDEX_STREAM);state.indexSocket=socket;
     socket.onopen=()=>{state.indexReconnectAttempt=0;state.indexLastMessageAt=Date.now();socket.send(JSON.stringify({method:'sub.index.price',param:{symbol:activeMarketSymbol}}));clearInterval(state.indexHeartbeat);clearInterval(state.indexWatchdog);state.indexHeartbeat=setInterval(()=>{if(socket.readyState===WebSocket.OPEN)socket.send(JSON.stringify({method:'ping'}));},15_000);state.indexWatchdog=setInterval(()=>{if(socket.readyState===WebSocket.OPEN&&Date.now()-state.indexLastMessageAt>45_000)socket.close();},5_000);};
-    socket.onmessage=event=>{try{if(state.indexSocket!==socket)return;const msg=JSON.parse(event.data);state.indexLastMessageAt=Date.now();if(msg.channel==='push.index.price'&&msg.data?.symbol===activeMarketSymbol){const received=Date.now(),exchangeTime=Number(msg.ts||Date.now()),val=Number(msg.data.price);if(!Number.isFinite(val)||val<=0)return;state.lastPrice=val;state.lastTradeAt=exchangeTime;state.lastReceivedAt=received;state.lastTradeLatency=Math.max(0,received-(exchangeTime+serverClockOffset));updateMexcIndexCandles(exchangeTime,val);state.analysis=analyze();settleSignalEvents();renderAnalysis();}}catch{}};
-    socket.onerror=()=>setConnection('bad','Index MEXC indisponible');socket.onclose=()=>{clearInterval(state.indexHeartbeat);clearInterval(state.indexWatchdog);if(state.indexSocket!==socket)return;if(document.visibilityState!=='hidden')setConnection('bad','Index MEXC · reconnexion…');const delay=Math.min(30_000,1_000*2**Math.min(state.indexReconnectAttempt++,5));clearTimeout(state.indexReconnectTimer);state.indexReconnectTimer=setTimeout(connectMexcIndex,delay);};
+    socket.onmessage=event=>{try{if(state.indexSocket!==socket)return;const msg=JSON.parse(event.data);state.indexLastMessageAt=Date.now();if(msg.channel==='push.index.price'&&msg.data?.symbol===activeMarketSymbol){const received=Date.now(),exchangeTime=Number(msg.ts||Date.now()),val=Number(msg.data.price);if(!Number.isFinite(val)||val<=0)return;state.streamError=null;state.lastPrice=val;state.lastTradeAt=exchangeTime;state.lastReceivedAt=received;state.lastTradeLatency=Math.max(0,received-(exchangeTime+serverClockOffset));updateMexcIndexCandles(exchangeTime,val);state.analysis=analyze();settleSignalEvents();renderAnalysis();}}catch{}};
+    socket.onerror=()=>{state.streamError='WEBSOCKET_ERROR';renderFeedDiagnostic();setConnection('bad','Index MEXC indisponible');};socket.onclose=()=>{clearInterval(state.indexHeartbeat);clearInterval(state.indexWatchdog);if(state.indexSocket!==socket)return;if(document.visibilityState!=='hidden')setConnection('bad','Index MEXC · reconnexion…');const delay=Math.min(30_000,1_000*2**Math.min(state.indexReconnectAttempt++,5));clearTimeout(state.indexReconnectTimer);state.indexReconnectTimer=setTimeout(connectMexcIndex,delay);};
   }catch{setConnection('bad','Index MEXC indisponible');const delay=Math.min(30_000,1_000*2**Math.min(state.indexReconnectAttempt++,5));clearTimeout(state.indexReconnectTimer);state.indexReconnectTimer=setTimeout(connectMexcIndex,delay);}
 }
 function setConnection(mode, label) { const c = $('connectionState'); c.className = 'connection ' + mode; c.innerHTML = '<i></i> ' + label; }
 // Tolerate at most 1 s of clock skew; the maximum accepted tick age remains 15 s.
-function freshnessIssue(){const now=Date.now(),marketAge=now+serverClockOffset-state.lastTradeAt;if(!clockSyncedAt||now-clockSyncedAt>=300_000)return'horloge MEXC non synchronisée';if(!state.lastTradeAt||now-state.lastReceivedAt>maxTickAgeMs||marketAge < -MAX_FUTURE_CLOCK_SKEW_MS||marketAge>maxTickAgeMs||state.lastTradeLatency>MAX_STREAM_LATENCY_MS)return'tick de l’index MEXC périmé';if(!state.lastCandleFetchAt||now-state.lastCandleFetchAt>MAX_CANDLE_AGE_MS)return'chandelles de l’index périmées';for(const tf of Object.keys(timeframes))if(!state.indexFetchedAt[tf]||now-state.indexFetchedAt[tf]>MAX_CANDLE_AGE_MS)return'chandelles '+tf+' manquantes ou périmées';if(!state.analysis?.ready)return'analyse MEXC incomplète';return null;}
+function freshnessIssue(){const now=Date.now(),marketAge=now+serverClockOffset-state.lastTradeAt;if(state.clockError)return'horloge MEXC indisponible ('+state.clockError+')';if(state.candleError)return'chandelles MEXC incomplètes ('+state.candleError+')';if(!clockSyncedAt||now-clockSyncedAt>=300_000)return'horloge MEXC non synchronisée';if(!state.lastTradeAt||now-state.lastReceivedAt>maxTickAgeMs||marketAge < -MAX_FUTURE_CLOCK_SKEW_MS||marketAge>maxTickAgeMs||state.lastTradeLatency>MAX_STREAM_LATENCY_MS)return'tick de l’index MEXC périmé';if(!state.lastCandleFetchAt||now-state.lastCandleFetchAt>MAX_CANDLE_AGE_MS)return'chandelles de l’index périmées';for(const tf of Object.keys(timeframes))if(!state.indexFetchedAt[tf]||now-state.indexFetchedAt[tf]>MAX_CANDLE_AGE_MS)return'chandelles '+tf+' manquantes ou périmées';if(!state.analysis?.ready)return'analyse MEXC incomplète';return null;}
 function fresh() {return !freshnessIssue();}
+function feedErrorLabel(code){
+  const labels={ENOTFOUND:'le serveur MEXC ne se résout pas (DNS)',EAI_AGAIN:'le DNS MEXC ne répond pas',ECONNREFUSED:'la connexion à MEXC est refusée',ECONNRESET:'la connexion à MEXC a été interrompue',ETIMEDOUT:'la connexion à MEXC a expiré',UND_ERR_CONNECT_TIMEOUT:'la connexion à MEXC a expiré',UND_ERR_HEADERS_TIMEOUT:'MEXC ne répond pas à temps',MEXC_RESPONSE_INVALID:'MEXC a répondu sans données de marché valides',NETWORK_ERROR:'aucune connexion réseau n’a abouti',CLOCK_SAMPLE_INVALID:'l’horloge MEXC est incohérente'};
+  return labels[code]||String(code||'erreur réseau inconnue').replace(/_/g,' ');
+}
+function renderFeedDiagnostic(){
+  const box=$('feedDiagnostic');if(!box)return;
+  const streamStale=!state.lastReceivedAt||Date.now()-state.lastReceivedAt>maxTickAgeMs;
+  const failed=!!state.clockError||!!state.candleError||!!state.streamError||!clockSyncedAt||streamStale;
+  box.hidden=!failed&&!state.feedRetryBusy;
+  box.classList.toggle('is-loading',state.feedRetryBusy);
+  $('feedDiagnosticTitle').textContent=state.feedRetryBusy?'Vérification du flux MEXC…':'Données MEXC indisponibles';
+  const problems=[];
+  if(state.clockError)problems.push('Horloge : '+feedErrorLabel(state.clockError));
+  if(state.candleError)problems.push('Chandelles : '+feedErrorLabel(state.candleError));
+  if(state.streamError)problems.push('Flux prix : '+feedErrorLabel(state.streamError));
+  else if(streamStale)problems.push('Flux prix : aucun tick MEXC reçu depuis moins de 15 s.');
+  if(!problems.length&&failed)problems.push('Attente de la confirmation de l’horloge MEXC.');
+  $('feedDiagnosticDetails').textContent=state.feedRetryBusy?'Nouvelle tentative sur les deux passerelles publiques MEXC en cours.':problems.join(' · ');
+  $('retryFeedButton').disabled=state.feedRetryBusy;
+}
+async function retryMarketFeed(){
+  if(state.feedRetryBusy)return;
+  state.feedRetryBusy=true;renderFeedDiagnostic();state.indexReconnectAttempt=0;
+  const socket=state.indexSocket;state.indexSocket=null;clearTimeout(state.indexReconnectTimer);if(socket&&socket.readyState<2)socket.close();
+  await Promise.allSettled([syncClock(),loadCandles()]);
+  if(!state.indexSocket)connectMexcIndex();
+  state.feedRetryBusy=false;renderFeedDiagnostic();
+}
 function renderPriceStatus() {
   $('lastPrice').textContent=state.lastPrice?price(state.lastPrice):'—';$('sourceLabel').textContent='Indice MEXC · '+(state.spotPrice?'spot Binance facultatif '+price(state.spotPrice):'confirmation spot facultative indisponible');
   if (state.lastTradeAt) {
@@ -208,7 +253,7 @@ function renderPriceStatus() {
   }
   if(state.candleError&&!state.lastCandleFetchAt)$('sourceLabel').textContent='Index MEXC · chandelles indisponibles';
   if (state.lastCandleFetchAt && Date.now() - state.lastCandleFetchAt > MAX_CANDLE_AGE_MS) $('sourceLabel').textContent = 'Chandelles périmées · rechargement en cours';
-  const issue=freshnessIssue();setConnection(issue ? 'bad' : 'ok', issue ? state.lastTradeAt ? 'Données périmées' : 'En attente' : 'Flux à jour');$('connectionState').title=issue||'Index et chandelles MEXC à jour';$('freshnessNote').textContent=issue?'Blocage : '+issue+' · seuils actifs : tick 15 s, chandelles 90 s':'Index MEXC ≤ 15 s · chandelles de l’index ≤ 90 s · prix au comptant facultatif';
+  const issue=freshnessIssue();setConnection(issue ? 'bad' : 'ok', issue ? state.lastTradeAt ? 'Données périmées' : 'En attente' : 'Flux à jour');$('connectionState').title=issue||'Index et chandelles MEXC à jour';$('freshnessNote').textContent=issue?'Blocage : '+issue+' · seuils actifs : tick 15 s, chandelles 90 s':'Index MEXC ≤ 15 s · chandelles de l’index ≤ 90 s · prix au comptant facultatif';renderFeedDiagnostic();
 }
 function disableActions(){const signal=state.operationalSignal,blocked=!!state.preSignal||!!signal&&(signal.phase!=='go'||signal.reconfirming),canLog=!!state.lastPrice&&!activePosition()&&!blocked;$('positionUpButton').disabled=!canLog||!!signal&&signal.side!=='up';$('positionDownButton').disabled=!canLog||!!signal&&signal.side!=='down';}
 function decisionFreshness() {
@@ -571,10 +616,10 @@ function setupMainTabs(){
 }
 function renderEventMarketTabs(){const nav=$('eventMarketTabs');nav.replaceChildren(...eventMarkets.map((market,index)=>{const button=document.createElement('button');button.type='button';button.className='event-market-tab'+(market.symbol===activeMarketSymbol?' active':'');button.role='tab';button.setAttribute('aria-selected',String(market.symbol===activeMarketSymbol));button.tabIndex=market.symbol===activeMarketSymbol?0:-1;button.dataset.eventMarket=market.symbol;button.textContent=market.label;button.setAttribute('aria-controls','top');return button;}));}
 function applyEventMarketLabels(){const market=eventMarkets.find(m=>m.symbol===activeMarketSymbol);if(!market)return;const label=market.label,pair=activeMarketSymbol.replace('_','/');document.title='Event Futures · '+label;$('eventMarketHeading').textContent=label;$('eventMarketMicro').textContent=label;$('eventChartPair').textContent=pair+' · 1 MINUTE';$('eventChartCard').setAttribute('aria-label','Graphique '+label+' 1 minute');$('headerMarketPill').innerHTML='<i></i> '+label;$('mainFooterText').textContent=label+' · Event Futures 10 min';}
-async function activateEventMarket(symbol,initial=false){if(!eventMarkets.some(m=>m.symbol===symbol))return;if(!initial&&symbol===activeMarketSymbol)return;if(!initial)stopScan('stopped');for(const timer of [state.indexHeartbeat,state.indexWatchdog])clearInterval(timer);clearTimeout(state.indexReconnectTimer);clearTimeout(state.spotReconnectTimer);clearTimeout(state.candleRetryTimer);const oldIndex=state.indexSocket,oldSpot=state.socket;state.indexSocket=null;state.socket=null;oldIndex?.close();oldSpot?.close();activeMarketSymbol=symbol;localStorage.setItem('eventlab-market-symbol',symbol);state.candles={};state.indexCandles={};state.indexFetchedAt={};state.lastPrice=null;state.lastTradeAt=0;state.lastReceivedAt=0;state.lastTradeLatency=null;state.spotPrice=null;state.spotTradeAt=0;state.spotReceivedAt=0;state.spotLatency=null;state.lastCandleFetchAt=0;state.candleError=null;state.analysis=null;state.preSignal=null;state.operationalSignal=null;state.pendingSide=null;state.pendingSince=0;state.signalCooldownUntil=0;state.indexReconnectAttempt=0;clockSyncedAt=0;serverClockOffset=0;renderEventMarketTabs();applyEventMarketLabels();renderPriceStatus();drawChart();decisionFreshness();syncClock();loadCandles();connectStream();connectMexcIndex();}
+async function activateEventMarket(symbol,initial=false){if(!eventMarkets.some(m=>m.symbol===symbol))return;if(!initial&&symbol===activeMarketSymbol)return;if(!initial)stopScan('stopped');for(const timer of [state.indexHeartbeat,state.indexWatchdog])clearInterval(timer);clearTimeout(state.indexReconnectTimer);clearTimeout(state.spotReconnectTimer);clearTimeout(state.candleRetryTimer);const oldIndex=state.indexSocket,oldSpot=state.socket;state.indexSocket=null;state.socket=null;oldIndex?.close();oldSpot?.close();activeMarketSymbol=symbol;localStorage.setItem('eventlab-market-symbol',symbol);state.candles={};state.indexCandles={};state.indexFetchedAt={};state.lastPrice=null;state.lastTradeAt=0;state.lastReceivedAt=0;state.lastTradeLatency=null;state.spotPrice=null;state.spotTradeAt=0;state.spotReceivedAt=0;state.spotLatency=null;state.lastCandleFetchAt=0;state.candleError=null;state.clockError=null;state.streamError=null;state.analysis=null;state.preSignal=null;state.operationalSignal=null;state.pendingSide=null;state.pendingSince=0;state.signalCooldownUntil=0;state.indexReconnectAttempt=0;clockSyncedAt=0;serverClockOffset=0;renderEventMarketTabs();applyEventMarketLabels();renderPriceStatus();drawChart();decisionFreshness();syncClock();loadCandles();connectStream();connectMexcIndex();}
 async function loadEventMarkets(){try{const response=await fetch('./event-markets.json',{cache:'no-store'});if(!response.ok)throw new Error('market_config_unavailable');const config=await response.json();eventMarkets=(Array.isArray(config.markets)?config.markets:[]).filter(m=>m&&['BTC_USDT','ETH_USDT'].includes(m.symbol)&&typeof m.label==='string');if(!eventMarkets.length)throw new Error('market_config_empty');if(!eventMarkets.some(m=>m.symbol===activeMarketSymbol))activeMarketSymbol=eventMarkets[0].symbol;$('marketConfigNote').textContent='Catalogue MEXC vérifié manuellement le '+config.verifiedOn+' · mise à jour contrôlée dans event-markets.json';renderEventMarketTabs();await activateEventMarket(activeMarketSymbol,true);}catch{$('marketConfigNote').textContent='Catalogue local indisponible · marchés Event Futures non chargés';setConnection('bad','Catalogue des marchés indisponible');}}
 function installHandlers() {
-  $('refreshButton').addEventListener('click', () => { if($('perpBotView').hidden){loadCandles();toast('Actualisation des chandelles demandée.');} });
+  $('refreshButton').addEventListener('click', () => { if($('perpBotView').hidden){retryMarketFeed();toast('Reconnexion aux données MEXC demandée.');} });$('retryFeedButton').addEventListener('click',retryMarketFeed);
   $('signalWindowInput').value=String(state.goValiditySeconds);$('signalWindowValue').textContent=state.goValiditySeconds+' s';$('signalWindowInput').addEventListener('input',()=>{state.goValiditySeconds=Number($('signalWindowInput').value);$('signalWindowValue').textContent=state.goValiditySeconds+' s';localStorage.setItem('eventlab-go-validity',String(state.goValiditySeconds));});
   $('positionUpButton').addEventListener('click',()=>addPosition('up')); $('positionDownButton').addEventListener('click',()=>addPosition('down'));
   $('prudenceInput').value=String(state.prudence); $('prudenceValue').textContent=state.prudence+' / 100'; $('prudenceInput').addEventListener('input',()=>{state.prudence=Number($('prudenceInput').value);$('prudenceValue').textContent=state.prudence+' / 100';localStorage.setItem('eventlab-prudence',String(state.prudence));if(state.candles['1m']){state.analysis=analyze();renderAnalysis();}});
