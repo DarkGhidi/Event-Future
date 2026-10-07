@@ -649,7 +649,23 @@ function installHandlers() {
 
 installHandlers(); renderJournal();
 window.__eventFuturesSmokeReady=loadEventMarkets();
-window.__eventFuturesSmoke=async()=>{await window.__eventFuturesSmokeReady;if(eventMarkets.length!==2||!eventMarkets.some(m=>m.symbol==='BTC_USDT')||!eventMarkets.some(m=>m.symbol==='ETH_USDT'))throw new Error('Catalogue crypto BTC/ETH incomplet.');const results=[];for(const market of eventMarkets){await activateEventMarket(market.symbol);const deadline=Date.now()+45_000;while(Date.now()<deadline&&(!fresh()||!state.analysis?.ready)){await new Promise(resolve=>setTimeout(resolve,500));}if(!fresh()||!state.analysis?.ready||!state.lastPrice||!state.indexCandles['1m']?.length)throw new Error(market.symbol+' : '+(freshnessIssue()||'analyse ou chandelles absentes'));results.push({symbol:market.symbol,price:state.lastPrice,candles1m:state.indexCandles['1m'].length,fresh:true});}return{ok:true,results};};
+window.__eventFuturesSmoke=async()=>{
+  console.log('SMOKE_RENDERER_BEGIN',document.readyState,typeof loadEventMarkets,typeof activateEventMarket);
+  await Promise.race([window.__eventFuturesSmokeReady,new Promise((_,reject)=>setTimeout(()=>reject(new Error('Catalogue non chargé après 20 s')),20_000))]);
+  console.log('SMOKE_CATALOG_READY',eventMarkets.map(m=>m.symbol).join(','));
+  if(eventMarkets.length!==2||!eventMarkets.some(m=>m.symbol==='BTC_USDT')||!eventMarkets.some(m=>m.symbol==='ETH_USDT'))throw new Error('Catalogue crypto BTC/ETH incomplet.');
+  const results=[];
+  for(const market of eventMarkets){
+    console.log('SMOKE_MARKET_BEGIN',market.symbol);
+    await activateEventMarket(market.symbol);
+    const deadline=Date.now()+45_000;
+    while(Date.now()<deadline&&(!fresh()||!state.analysis?.ready))await new Promise(resolve=>setTimeout(resolve,500));
+    if(!fresh()||!state.analysis?.ready||!state.lastPrice||!state.indexCandles['1m']?.length)throw new Error(market.symbol+' : '+(freshnessIssue()||'analyse ou chandelles absentes'));
+    results.push({symbol:market.symbol,price:state.lastPrice,candles1m:state.indexCandles['1m'].length,fresh:true});
+    console.log('SMOKE_MARKET_OK',market.symbol);
+  }
+  return{ok:true,results};
+};
 setInterval(()=>{if($('perpBotView').hidden)loadCandles();}, 10_000); setInterval(()=>{if($('perpBotView').hidden&&(!clockSyncedAt||Date.now()-clockSyncedAt>60_000))syncClock();}, 15_000); setInterval(refreshWallet, 30_000); setInterval(()=>{if(!$('perpBotView').hidden){refreshBotMarket();refreshBotAccount();}},30_000);setInterval(pollMexcIndexFallback,2_500);setInterval(()=>{if(!$('perpBotView').hidden)refreshBotStatus();},2_000);setInterval(processScan, 250);
 setInterval(() => { renderPriceStatus(); decisionFreshness(); updateCountdown(); settleJournal(); }, 1_000);
 if ('serviceWorker' in navigator) window.addEventListener('load', () => {navigator.serviceWorker.addEventListener('controllerchange',()=>{const build='eventlab-worker-v6';if(sessionStorage.getItem('eventlab-worker-build')!==build){sessionStorage.setItem('eventlab-worker-build',build);location.reload();}});navigator.serviceWorker.register('./sw.js').then(registration=>registration.update()).catch(() => {});});
