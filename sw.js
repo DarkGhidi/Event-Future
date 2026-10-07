@@ -1,4 +1,4 @@
-var CACHE='event-lab-shell-v5';
+var CACHE='event-lab-shell-v6';
 var SHELL=['./','./index.html','./styles.css','./bot-activity.css','./app.js','./event-markets.json','./manifest.webmanifest','./icon.svg'];
 self.addEventListener('install',function(event){event.waitUntil(caches.open(CACHE).then(function(cache){return cache.addAll(SHELL);}));self.skipWaiting();});
 self.addEventListener('activate',function(event){event.waitUntil(caches.keys().then(function(keys){return Promise.all(keys.filter(function(k){return k!==CACHE;}).map(function(k){return caches.delete(k);}));}));self.clients.claim();});
