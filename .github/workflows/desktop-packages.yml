@@ -117,7 +117,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mapfile -t files < <(find installateurs -type f \\( -name '*.exe' -o -name '*.dmg' \\) -print)
+          mapfile -t files < <(find installateurs -type f | grep -E '(exe|dmg)$' || true)
           if [ "${#files[@]}" -ne 3 ]; then
             printf 'Nombre d’installateurs inattendu : %s\\n' "${#files[@]}"
             find installateurs -maxdepth 4 -type f -print || true
