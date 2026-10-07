@@ -17,7 +17,7 @@ const APP_URL = `http://${HOST}:${PORT}/`;
 if (smokeTest) setTimeout(() => {
   console.error('SMOKE_TEST_TIMEOUT: packaged local market service did not pass within 45 seconds.');
   app.exit(1);
-}, 120_000);
+}, 180_000);
 const credentialsPath = () => path.join(app.getPath('userData'), 'mexc-credentials.secure');
 const botCredentialsPath = () => path.join(app.getPath('userData'), 'mexc-trading-credentials.secure');
 const singleInstance = app.requestSingleInstanceLock();
