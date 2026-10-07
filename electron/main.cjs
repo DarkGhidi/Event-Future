@@ -213,7 +213,7 @@ if (!singleInstance) {
     });
     mainWindow.once('ready-to-show', () => { if (!smokeTest) mainWindow.show(); });
     mainWindow.on('closed', () => { mainWindow = null; });
-    if (smokeTest) mainWindow.webContents.once('did-finish-load', async () => {
+    if (smokeTest) mainWindow.webContents.once('dom-ready', async () => {
       try {
         const result = await mainWindow.webContents.executeJavaScript('window.__eventFuturesSmoke()');
         if (!result?.ok) throw new Error('Le test de démarrage local a échoué.');
