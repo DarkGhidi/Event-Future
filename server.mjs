@@ -161,7 +161,7 @@ function estimateRiskAdjustedNotional(config,market,atr){
   if(!Number.isFinite(price)||price<=0||!Number.isFinite(atr)||atr<=0||!Number.isFinite(bid)||!Number.isFinite(ask)||bid<=0||ask<bid)return{notional:0,riskBudgetUsd:0,estimatedLossUsd:0,lossFraction:Infinity};
   const spread=(ask-bid)/((ask+bid)/2),fee=Math.max(Number(contract.takerFeeRate)||0,BOT_API_TAKER_FEE_FLOOR);
   const lossFraction=(1.5*atr/price)+(fee*2)+spread+.0005;
-  const riskBudgetUsd=Number(config.allocated)*.005,desiredNotional=Number(config.allocated)*Number(config.marginPercent)/100*Number(config.leverage);
+  const riskBudgetUsd=Number(config.allocated)*(Number(config.riskPercent)||.5)/100,desiredNotional=Number(config.allocated)*Number(config.marginPercent)/100*Number(config.leverage);
   const riskNotional=lossFraction>0?riskBudgetUsd/lossFraction:0;
   const notional=Math.min(desiredNotional,riskNotional);
   return{notional,riskBudgetUsd,estimatedLossUsd:notional*lossFraction,lossFraction,feeRate:fee,spreadFraction:spread};
@@ -235,7 +235,7 @@ function stopBotRuntime(emergency=false){botRun.emergency=emergency;botRun.activ
 function botStatusPayload(){return{active:botRun.active,status:botRun.status,symbol:botRun.config?.symbol||null,lastError:botRun.lastError,search:botRun.search,events:botRun.events,managedPosition:botRun.managedPosition?{id:botRun.managedPosition.id,lastStopLoss:botRun.managedPosition.lastStopLoss,lastTakeProfit:botRun.managedPosition.lastTakeProfit}:null,checkedAt:Date.now()};}
 async function preflightBot(config){
   if(!botCredentials)throw new Error('api_key_required');
-  if(!allowedBotSymbol(config.symbol)||!Number.isFinite(config.allocated)||!Number.isFinite(config.marginPercent)||!Number.isInteger(config.leverage)||config.allocated<=0||config.marginPercent<=0||config.marginPercent>100||config.leverage<1||config.walletBudget<=0||config.allocated>config.walletBudget||config.consent!==true)throw new Error('settings_invalid');
+  if(!allowedBotSymbol(config.symbol)||!Number.isFinite(config.allocated)||!Number.isFinite(config.marginPercent)||!Number.isFinite(config.riskPercent)||!Number.isInteger(config.leverage)||config.allocated<=0||config.marginPercent<=0||config.marginPercent>100||config.riskPercent<.1||config.riskPercent>1||config.leverage<1||config.walletBudget<=0||config.allocated>config.walletBudget||config.consent!==true)throw new Error('settings_invalid');
   const market=await fetchBotMarket(config.symbol),contract=market.contract,price=Number(market.ticker?.lastPrice),atr=atrValue(market.candles);
   if(!contract||Number(contract.state)!==0||contract.futureType!==1||contract.settleCoin!=='USDT'||contract.apiAllowed!==true||!price||!atr||Date.now()-market.checkedAt>20_000)throw new Error('contract_or_market_blocked');
   const positions=await readBotPositions();if(positions.some(p=>p.symbol===config.symbol&&Number(p.holdVol)>0))throw new Error('existing_position');
@@ -325,7 +325,7 @@ export const server = http.createServer(async (req, res) => {
       if(process.env.EVENT_FUTURES_DESKTOP!=='1')return apiReply(res,403,{error:'Le bot exige l’application de bureau sécurisée.'});
       if(botRun.active)return apiReply(res,409,{error:'Le bot fonctionne déjà.'});
       let body;try{body=await readBody(req);}catch{return apiReply(res,400,{error:'Paramètres invalides.'});}
-      const config={symbol:body.symbol,allocated:Number(body.allocated),walletBudget:Number(body.walletBudget),marginPercent:Number(body.marginPercent),leverage:Number(body.leverage),consent:body.consent===true};
+      const config={symbol:body.symbol,allocated:Number(body.allocated),walletBudget:Number(body.walletBudget),marginPercent:Number(body.marginPercent),riskPercent:Number(body.riskPercent),leverage:Number(body.leverage),consent:body.consent===true};
       try{
         const preflight=await preflightBot(config);
         if(preflight.market.candles.some(c=>c.time+60_000<=Date.now())===false||Date.now()-(preflight.market.candles.filter(c=>c.time+60_000<=Date.now()).at(-1)?.time+60_000)>90_000)throw new Error('signal_data_stale');
