@@ -55,22 +55,28 @@ function allowedEventSymbol(value) { return eventMarkets.includes(value); }
 async function fetchMexcPublic(url) {
   const parsed = new URL(url);
   const bases = parsed.hostname === 'api.mexc.com' ? ['https://api.mexc.com', 'https://contract.mexc.com'] : [parsed.origin];
-  let response, lastError;
-  for (let index = 0; index < bases.length; index += 1) {
+  let lastError;
+  for (const base of bases) {
     try {
-      response = await fetch(bases[index] + parsed.pathname + parsed.search, { signal:AbortSignal.timeout(6_000), headers:{ Accept:'application/json' } });
-      if (response.ok) break;
-      if (index + 1 >= bases.length || ![404, 500, 502, 503, 504].includes(response.status)) throw new Error('mexc_http_' + response.status);
-      await response.body?.cancel();
+      const response = await fetch(base + parsed.pathname + parsed.search, { signal:AbortSignal.timeout(6_000), headers:{ Accept:'application/json' } });
+      const body = await response.json().catch(() => null);
+      if (!response.ok) {
+        lastError = new Error('mexc_http_' + response.status);
+        if (![404, 500, 502, 503, 504].includes(response.status)) throw lastError;
+        continue;
+      }
+      // MEXC may return HTTP 200 with an invalid/empty payload on one gateway.
+      // Treat that as a failed gateway and try the alternate public hostname.
+      if (!body || body.success !== true) {
+        lastError = new Error('mexc_response_invalid');
+        continue;
+      }
+      return body.data;
     } catch (error) {
       lastError = error;
-      if (index + 1 >= bases.length) throw error;
     }
   }
-  if (!response?.ok) throw lastError || new Error('mexc_unavailable');
-  const body = await response.json();
-  if (!body || body.success !== true) throw new Error('mexc_unavailable');
-  return body.data;
+  throw lastError || new Error('mexc_unavailable');
 }
 async function fetchBotMarket(symbol) {
   if (!allowedBotSymbol(symbol)) throw new Error('symbol_invalid');
