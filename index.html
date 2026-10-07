@@ -106,10 +106,11 @@
           <label>Contrat<select id="botPairSelect" class="bot-select"><option value="BTC_USDT">BTC_USDT</option><option value="RIVER_USDT">RIVER_USDT</option></select></label>
           <label>Budget affecté<input id="botAllocatedBudget" class="bot-number" type="number" min="0" step="1" value="200"><small>USDT</small></label>
           <label>Marge par trade<input id="botMarginShare" class="bot-range" type="range" min="0" max="100" step="1" value="45"><strong id="botMarginShareValue">45 %</strong></label>
+          <label>Risque max. par trade<input id="botRiskPercent" class="bot-range" type="range" min="0.1" max="1" step="0.1" value="0.5"><strong id="botRiskPercentValue">0,5 %</strong></label>
           <label>Levier<input id="botLeverage" class="bot-range" type="range" min="1" max="100000" step="1" value="30"><strong id="botLeverageValue">30×</strong></label>
         </div>
         <div class="bot-exposure-inline"><span id="botMarginResult">90 USDT de marge / trade</span><strong id="botNotionalResult">2 700 USDT de notionnel estimé</strong></div>
-        <div class="bot-risk-cap">Risque visé par entrée : 0,5 % du budget affecté. Le volume réel est ajusté au stop, aux frais estimés, au spread et à la profondeur MEXC.</div>
+        <div class="bot-risk-cap">Risque visé par entrée : <strong id="botRiskCapValue">0,5 %</strong> du budget affecté. Le volume réel est ajusté au stop, aux frais estimés, au spread et à la profondeur MEXC.</div>
         <div class="bot-exit-inline"><span>SL / TP dynamique</span><strong id="botExitState">ATR 1,5× SL · 3× TP · suivi après +1,5× ATR</strong></div>
         <div id="botPowerStatus" class="bot-power-status" role="status">Le bot vous indiquera si le maintien de l’ordinateur actif est disponible.</div>
         <div class="bot-limit-result" id="botLimitResult">Vérification des limites MEXC…</div>
