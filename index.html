@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#08111e">
+  <meta name="description" content="Analyse et journal local de positions MEXC Event Futures BTC/USDT passées manuellement.">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="styles.css">
+  <title>Event Futures · BTC/USDT</title>
+</head>
+<body>
+  <div class="shell">
+    <header class="topbar">
+      <a class="brand" href="#top" aria-label="Event Futures, accueil"><span class="brand-mark">E</span><span>EVENT<span class="brand-light">/LAB</span></span></a>
+      <div class="top-actions"><span class="market-pill"><i></i> BTC / USDT</span><button id="installButton" class="button subtle hidden">Installer</button><button id="refreshButton" class="icon-button" title="Actualiser" aria-label="Actualiser">↻</button></div>
+    </header>
+
+    <main id="top">
+      <section class="hero-grid">
+        <div class="hero-copy">
+          <div class="eyebrow"><span id="connectionState" class="connection"><i></i> Connexion…</span></div>
+          <h1>BTC / USDT</h1>
+          <div class="price-row"><div><span class="micro-label">BTC / USDT</span><div id="lastPrice" class="price">—</div></div><div id="priceChange" class="change">—</div></div>
+          <div class="updated-row"><span id="sourceLabel">En attente des données de marché</span><span id="updatedAt">—</span></div><div class="freshness-note" id="freshnessNote">Index MEXC ≤ 15 s · Binance au comptant ≤ 15 s · chandelles ≤ 90 s</div>
+        </div>
+        <div class="signal-card" id="signalCard">
+          <div class="card-top"><span class="micro-label">DÉCISION</span><span class="live-tag"><i></i> INDICATIF</span></div>
+          <div id="decisionGlyph" class="decision-glyph neutral">—</div>
+          <div id="decisionLabel" class="decision-label">En attente</div>
+          <div id="scanCountdown" class="scan-countdown decision-countdown" role="status" aria-live="polite" aria-atomic="true">Surveillance arrêtée</div>
+          <div id="decisionReason" class="decision-reason">Index MEXC à T+10 min · prix d’entrée réel fixé par MEXC.</div><div id="entryHint" class="entry-hint">Seuil d’entrée indicatif indisponible</div><div id="invalidationHint" class="invalidation-hint">Signal annulé si conditions changent ou données périment</div>
+          <div class="signal-footer"><div><span class="micro-label">HORIZON / SUIVI</span><strong>10 minutes</strong></div><div class="countdown-block"><span class="micro-label">ÉCHÉANCE / POSITION</span><strong id="countdown">—</strong></div></div>
+          <div id="nextAnalysis" class="next-analysis">Calcul local · flux public</div><div class="position-actions"><button id="positionUpButton" class="button position-long" disabled>Position prise · Achat (position longue)</button><button id="positionDownButton" class="button position-short" disabled>Position prise · Vente (position courte)</button></div>
+        </div>
+      </section>
+
+
+
+      <section class="chart-card" aria-label="Graphique BTC/USDT 1 minute"><div class="chart-head"><div><div class="micro-label">BTC/USDT · 1 MINUTE</div><strong>Binance au comptant · chandelles et bandes</strong></div><span class="chart-caption">60 dernières chandelles</span></div><canvas id="priceChart" height="220" aria-label="Chandelles 1 min avec bandes de Bollinger"></canvas></section>
+
+      <section class="market-strip" aria-label="Indicateurs utiles">
+        <div class="strip-cell"><span class="micro-label">TENDANCE · 1 MIN À 4 H</span><div id="trendSummary" class="strip-value">—</div></div>
+        <div class="strip-cell"><span class="micro-label">MOMENTUM · MACD</span><div id="macdSummary" class="strip-value">—</div></div>
+        <div class="strip-cell"><span class="micro-label">VOLATILITÉ · BANDES</span><div id="volSummary" class="strip-value">—</div></div>
+        <div class="strip-cell"><span class="micro-label">VOLUME · 1 MIN</span><div id="volumeSummary" class="strip-value">—</div></div>
+      </section>
+
+      <section class="section-block">
+        <div class="section-heading"><div><div class="eyebrow">INDICATEURS</div><h2>Contexte du marché</h2></div></div>
+        <div class="analysis-layout">
+          <div class="factors" id="factors">
+            <article class="factor"><span class="factor-icon">↗</span><div><strong>Tendance de fond</strong><p>En attente des chandelles 1 min, 5 min, 15 min, 1 h et 4 h.</p></div><span class="factor-state muted">—</span></article>
+            <article class="factor"><span class="factor-icon">⌁</span><div><strong>Momentum · MACD</strong><p>Calculé sur clôtures, avec signal et histogramme.</p></div><span class="factor-state muted">—</span></article>
+            <article class="factor"><span class="factor-icon">◉</span><div><strong>Zone · Bollinger & Fibonacci</strong><p>Les bandes décrivent la dispersion; Fibonacci donne un repère de retracement.</p></div><span class="factor-state muted">—</span></article>
+            <article class="factor"><span class="factor-icon">▥</span><div><strong>Volume & volatilité</strong><p>Comparaison au volume récent et à l’amplitude moyenne.</p></div><span class="factor-state muted">—</span></article>
+            <article class="factor"><span class="factor-icon">⌗</span><div><strong>Structure & niveaux</strong><p>Lecture des derniers sommets, creux et niveaux proches.</p></div><span class="factor-state muted">—</span></article>
+          </div>
+          <aside class="levels-card"><div class="card-top"><span class="micro-label">REPÈRES DE PRIX · 4 H</span><span class="tiny-tag">INDICATIFS</span></div><div class="level-line"><span>Sommet récent</span><strong id="levelHigh">—</strong></div><div class="level-line"><span>Prix actuel</span><strong id="levelCurrent">—</strong></div><div class="level-line"><span>Creux récent</span><strong id="levelLow">—</strong></div><div class="fib-block"><div class="fib-title"><span>Retraçage Fibonacci</span><span>dernier swing</span></div><div class="fib-row"><span>38,2 %</span><strong id="fib382">—</strong></div><div class="fib-row"><span>50,0 %</span><strong id="fib500">—</strong></div><div class="fib-row"><span>61,8 %</span><strong id="fib618">—</strong></div></div><p class="quiet-note">Ces repères viennent des chandelles BTC/USDT publiques et peuvent différer de l’indice MEXC utilisé au règlement.</p></aside>
+        </div>
+        <div id="contradictions" class="contradictions hidden"></div>
+      </section>
+
+      <section class="section-block portfolio-section">
+        <div class="section-heading"><div><div class="eyebrow">02 / CONSULTATION</div><h2>Portefeuille MEXC</h2></div><span class="section-caption">Lecture seule · clé gardée en mémoire sur cet ordinateur.</span></div>
+        <div class="portfolio-card"><span class="portfolio-icon">◌</span><div class="wallet-content"><strong id="walletStatus">Solde non connecté</strong><p id="walletDetails">Connectez une clé MEXC limitée à « View Account Details » (« Consulter les détails du compte »). Le serveur local l’utilise en mémoire et ne l’enregistre pas. Cette connexion est disponible uniquement sur cet ordinateur, via localhost.</p><div id="walletBalances" class="wallet-balances hidden"></div><small>Cette lecture ne confirme pas une position Event Futures ni son résultat. MEXC indique que les ordres Event Futures ne sont pas disponibles par API.</small></div><button id="walletConnectButton" class="button secondary">Connecter en lecture seule</button><button id="walletDisconnectButton" class="button subtle hidden">Déconnecter</button></div>
+      </section>
+
+      <section class="section-block journal-section">
+        <div class="section-heading"><div><div class="eyebrow">03 / SUIVI PERSONNEL</div><h2>Journal des positions réelles</h2></div><span class="section-caption">Vous passez chaque ordre manuellement sur MEXC. L’app ne le confirme pas.</span></div>
+        <div class="prudence-control"><label for="prudenceInput"><span>Prudence</span><strong id="prudenceValue">70 / 100</strong></label><input id="prudenceInput" type="range" min="0" max="100" value="70"><div class="range-labels"><span>Plus de signaux</span><span>Plus d’abstention</span></div><p>Ce réglage déplace le seuil de sélection; il ne représente pas une probabilité de gain.</p></div>
+        <div class="scan-panel"><div class="scan-heading"><strong>Surveillance en continu</strong><span id="scanStatus">Surveillance arrêtée</span></div><div class="scan-controls"><button id="scanStartButton" class="button primary">Démarrer</button><button id="scanPauseButton" class="button secondary" disabled>Mettre en pause</button><button id="scanStopButton" class="button subtle" disabled>Arrêter</button><button id="soundEnableButton" class="button secondary">Activer la voix</button></div><label class="signal-window-label" for="signalWindowInput">Compte à rebours <strong id="signalWindowValue">10 s</strong></label><input id="signalWindowInput" class="signal-window-input" type="range" min="10" max="30" step="5" value="10"><p>Ouvrez et préparez MEXC avant de démarrer. Le compte à rebours reste visible sur la carte de décision; la voix annonce une position acheteuse ou vendeuse, puis compte chaque seconde jusqu’à « C’EST PARTI ». La voix est facultative; le compte à rebours visuel reste actif. À la fin, l’app revérifie la fraîcheur des données, la direction et le niveau avant l’annonce distincte. Gardez cet onglet ouvert : le navigateur peut suspendre l’analyse ou retarder les alertes, surtout sur téléphone.</p></div><p class="quiet-note order-note">Après avoir exécuté votre ordre sur MEXC, cliquez sur « Position prise · Achat (position longue) » ou « Position prise · Vente (position courte) » pour enregistrer l’index MEXC observé au clic comme référence estimée et démarrer le suivi de 10 minutes. Le résultat gagnant ou perdant est ensuite estimé automatiquement par comparaison d’index; corrigez-le si le résultat réel de l’ordre diffère.</p>
+        <div class="journal-summary" id="journalSummary"><span>0 positions · 0 gagnée · 0 perdue</span><span>Suivi local sur cet appareil</span><button id="clearJournal" class="text-button">Effacer le journal</button></div>
+        <div id="journalList" class="journal-list"><div class="empty-journal">Les positions suivies apparaîtront ici. Le résultat gagnant ou perdant est estimé automatiquement avec l’index MEXC au clic et à l’échéance de 10 minutes; corrigez-le si le résultat réel de votre ordre diffère.</div></div>
+        <div id="reviewPanel" class="review-panel"><div class="review-metrics" id="reviewMetrics"></div><div class="review-text" id="reviewText">Le résultat estimé suit le mouvement de l’index MEXC entre le clic et l’échéance. Il ne vérifie pas le règlement de l’ordre.</div></div>
+      </section>
+
+      <section class="footnote"><span class="footnote-mark">i</span><p><strong>Outil d’observation, pas un conseil financier.</strong> Les signaux et seuils utilisent l’index MEXC; le prix réel d’entrée et le règlement restent fixés par MEXC. Les chandelles et volumes Binance au comptant sont des confirmations, pas le prix de règlement. Les données peuvent être retardées ou indisponibles. Les indicateurs ne prédisent pas l’échéance et aucune probabilité de gain n’est garantie. Le système peut s’abstenir. Aucun ordre n’est passé par l’application.</p></section>
+    </main>
+    <footer><span>EVENT/LAB <span class="footer-muted">· Usage personnel · Données locales</span></span><span>BTC/USDT · Event Futures 10 min</span></footer>
+  </div>
+  <div id="walletDialog" class="dialog-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="walletDialogTitle"><form id="walletForm" class="dialog-card"><button id="walletDialogClose" type="button" class="dialog-close" aria-label="Fermer">×</button><div class="eyebrow">MEXC · LECTURE SEULE</div><h2 id="walletDialogTitle">Connecter le portefeuille</h2><p>Créez une clé avec la seule permission « View Account Details » (« Consulter les détails du compte »). Désactivez les permissions de négociation et de retrait; liez-la à votre adresse IP si MEXC le permet. La clé reste en mémoire jusqu’à l’arrêt du serveur local.</p><label for="apiKeyInput">Clé API</label><input id="apiKeyInput" autocomplete="off" spellcheck="false" required><label for="apiSecretInput">Clé secrète</label><input id="apiSecretInput" type="password" autocomplete="new-password" required><div id="walletFormError" class="form-error" role="alert"></div><button id="walletSubmit" class="button primary" type="submit">Vérifier et connecter</button></form></div>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="app.js" defer></script>
+</body>
+</html>

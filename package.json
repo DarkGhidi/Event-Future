@@ -1,0 +1,81 @@
+{
+  "name": "event-futures-desktop",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Application locale BTC/USDT Event Futures",
+  "author": "Event/Lab",
+  "packageManager": "pnpm@11.19.0",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "main": "electron/main.cjs",
+  "scripts": {
+    "start:desktop": "electron electron/main.cjs",
+    "dist:win": "electron-builder --win nsis --x64 --publish never",
+    "dist:mac:arm64": "electron-builder --mac dmg --arm64 --publish never",
+    "dist:mac:x64": "electron-builder --mac dmg --x64 --publish never"
+  },
+  "devDependencies": {
+    "electron": "44.0.0",
+    "electron-builder": "26.17.0"
+  },
+  "build": {
+    "appId": "com.eventlab.futures",
+    "productName": "Event Futures",
+    "asar": false,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "app.js",
+      "index.html",
+      "styles.css",
+      "manifest.webmanifest",
+      "icon.svg",
+      "server.mjs",
+      "sw.js",
+      "README.md",
+      "electron/main.cjs",
+      "electron/update-config.json",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ],
+      "artifactName": "Event-Futures-Setup-${version}-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Event Futures",
+      "installerLanguages": ["fr_FR"],
+      "language": "1036"
+    },
+    "mac": {
+      "category": "public.app-category.utilities",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": ["arm64", "x64"]
+        }
+      ],
+      "artifactName": "Event-Futures-${version}-${arch}.${ext}",
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false
+    },
+    "dmg": {
+      "title": "Event Futures ${version}",
+      "contents": [
+        {"x": 130, "y": 220, "type": "file"},
+        {"x": 410, "y": 220, "type": "link", "path": "/Applications"}
+      ]
+    }
+  }
+}
