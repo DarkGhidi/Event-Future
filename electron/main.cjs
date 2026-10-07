@@ -298,8 +298,13 @@ if (!singleInstance) {
       await restoreCredentialFile(serverModule);
       await restoreBotCredentialFile(serverModule);
       await waitForLocalApp();
+      if (smokeTest) {
+        console.log('Vérification locale réussie.');
+        localServer.close(() => app.quit());
+        return;
+      }
       createWindow();
-      if (!smokeTest) setTimeout(checkForUpdates, 1_200);
+      setTimeout(checkForUpdates, 1_200);
     } catch (error) {
       dialog.showErrorBox('Event Futures ne peut pas démarrer', 'Le serveur local n’a pas pu démarrer. Fermez les autres instances et réessayez.');
       app.quit();
