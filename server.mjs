@@ -74,12 +74,13 @@ async function fetchMexcPublic(url) {
 }
 async function fetchBotMarket(symbol) {
   if (!allowedBotSymbol(symbol)) throw new Error('symbol_invalid');
-  const [tickerData, detailData, oneData, fiveData, fifteenData] = await Promise.all([
+  const [tickerData, detailData, oneData, fiveData, fifteenData, depthData] = await Promise.all([
     fetchMexcPublic('https://api.mexc.com/api/v1/contract/ticker?symbol=' + symbol),
     fetchMexcPublic('https://api.mexc.com/api/v1/contract/detail/country?symbol=' + symbol),
     fetchMexcPublic('https://api.mexc.com/api/v1/contract/kline/' + symbol + '?interval=Min1'),
     fetchMexcPublic('https://api.mexc.com/api/v1/contract/kline/' + symbol + '?interval=Min5'),
-    fetchMexcPublic('https://api.mexc.com/api/v1/contract/kline/' + symbol + '?interval=Min15')
+    fetchMexcPublic('https://api.mexc.com/api/v1/contract/kline/' + symbol + '?interval=Min15'),
+    fetchMexcPublic('https://api.mexc.com/api/v1/contract/depth/' + symbol + '?limit=20').catch(() => null)
   ]);
   const ticker = Array.isArray(tickerData) ? tickerData.find(item => item.symbol === symbol) : tickerData;
   const detail = Array.isArray(detailData) ? detailData.find(item => item.symbol === symbol) : detailData?.symbol === symbol ? detailData : null;
@@ -91,7 +92,7 @@ async function fetchBotMarket(symbol) {
     else if (Array.isArray(raw?.time)) candles = raw.time.map((time, index) => ({ time, open:raw.open?.[index], high:raw.high?.[index], low:raw.low?.[index], close:raw.close?.[index], vol:raw.vol?.[index] }));
     return candles.map(candle => ({ time:Number(candle.time) * (Number(candle.time) < 10_000_000_000 ? 1000 : 1), open:Number(candle.open), high:Number(candle.high), low:Number(candle.low), close:Number(candle.close), volume:Number(candle.vol ?? candle.volume) })).filter(c => [c.time,c.open,c.high,c.low,c.close].every(Number.isFinite)).slice(-240);
   };
-  return { symbol, ticker, contract:detail, candles:normalizeCandles(oneData), candles5m:normalizeCandles(fiveData), candles15m:normalizeCandles(fifteenData), checkedAt:Date.now() };
+  return { symbol, ticker, contract:detail, depth:depthData&&Array.isArray(depthData.asks)&&Array.isArray(depthData.bids)?depthData:null, candles:normalizeCandles(oneData), candles5m:normalizeCandles(fiveData), candles15m:normalizeCandles(fifteenData), checkedAt:Date.now() };
 }
 async function fetchBotPrivate(pathname, credentials, method='GET', payload=null) {
   const timestamp = String(Date.now());
@@ -154,12 +155,19 @@ async function verifyOrProtectPosition(position,market){
   return true;
 }
 function confirmedBotPivots(candles,duration){const closed=(candles||[]).filter(c=>c.time+duration<=Date.now()),levels=[];for(let i=2;i<closed.length-2;i++){const pivot=closed[i],neighbors=closed.slice(i-2,i).concat(closed.slice(i+1,i+3));if(neighbors.every(c=>pivot.high>c.high))levels.push({price:pivot.high,kind:'resistance'});if(neighbors.every(c=>pivot.low<c.low))levels.push({price:pivot.low,kind:'support'});}return levels;}
-function botSignal(market){
+function botSignal(market,requestedVol=0){
   const cross=macdCross(market.candles);if(!cross)return null;
   const t5=trendDirection(market.candles5m),t15=trendDirection(market.candles15m);if(cross!==t5||cross!==t15)return null;
   const closed=market.candles.filter(c=>c.time+60_000<=Date.now()),bar=closed.at(-1),price=Number(market.ticker?.lastPrice),atr=atrValue(market.candles),ticker=market.ticker||{};
   if(!bar||!Number.isFinite(price)||price<=0||!Number.isFinite(atr)||atr<=0)return null;
   const atrPct=atr/price;if(atrPct<.0001||atrPct>.015)return null;
+  const bid=Number(ticker.bid1),ask=Number(ticker.ask1),depth=market.depth,depthTime=Number(depth?.timestamp);
+  if(!Number.isFinite(bid)||!Number.isFinite(ask)||bid<=0||ask<bid||!depth||!Number.isFinite(depthTime)||Date.now()-depthTime>5_000)return null;
+  const spreadPct=(ask-bid)/((ask+bid)/2);
+  if(!Number.isFinite(spreadPct)||spreadPct>Math.min(.001,atrPct*.25))return null;
+  const executableSide=cross==='long'?depth.asks:depth.bids,topDepth=Array.isArray(executableSide)?executableSide.slice(0,10):[];
+  const visibleDepth=topDepth.reduce((sum,row)=>sum+Number(row?.[2]||0),0);
+  if(!topDepth.length||!Number.isFinite(visibleDepth)||visibleDepth<Math.max(1,requestedVol*1.5))return null;
   const volumes=closed.slice(-21,-1).map(c=>c.volume).filter(v=>Number.isFinite(v)&&v>=0),average=volumes.length===20?volumes.reduce((a,b)=>a+b,0)/20:0;
   if(!average||!Number.isFinite(bar.volume)||bar.volume<average*.65)return null;
   const volume24=Number(ticker.volume24),amount24=Number(ticker.amount24),openInterest=Number(ticker.holdVol),funding=Number(ticker.fundingRate);
@@ -167,7 +175,7 @@ function botSignal(market){
   const pivots=[...confirmedBotPivots(market.candles,60_000),...confirmedBotPivots(market.candles5m,300_000),...confirmedBotPivots(market.candles15m,900_000)];
   const obstacle=pivots.filter(level=>cross==='long'?level.kind==='resistance'&&level.price>price:level.kind==='support'&&level.price<price).sort((a,b)=>cross==='long'?a.price-b.price:b.price-a.price)[0];
   if(obstacle&&Math.abs(obstacle.price-price)<atr*.75)return null;
-  return{side:cross,bar:bar.time,atrPct,volumeRatio:bar.volume/average,blockingLevel:obstacle?.price??null};
+  return{side:cross,bar:bar.time,atrPct,spreadBps:spreadPct*10_000,depthContracts:visibleDepth,volumeRatio:bar.volume/average,blockingLevel:obstacle?.price??null};
 }
 async function botTradingTick(){
   if(!botRun.active||botRun.loopBusy||!botCredentials)return;botRun.loopBusy=true;
@@ -179,9 +187,9 @@ async function botTradingTick(){
     if(same){if(!botRun.managedPosition||String(botRun.managedPosition.id)!==String(same.positionId)){stopBotRuntime(false);botRun.status='Position externe détectée · intervention requise';botRun.lastError='Position non créée par cette session';addBotEvent('attention',botRun.status,{price:Number(market.ticker.lastPrice)});return;}positionRiskCandidate=same.positionId;botRun.search={checkedAt:Date.now(),price:Number(market.ticker?.lastPrice),phase:'position',label:'Position ouverte · protections en suivi'};if(botRun.emergency){botRun.active=false;const closed=await closeBotPosition(same);if(closed)botRun.managedPosition=null;botRun.status=closed?'Arrêt d’urgence · position clôturée':'Intervention manuelle requise · clôture non confirmée';botRun.lastError=closed?null:'Clôture non confirmée';addBotEvent('exit',botRun.status,{price:Number(market.ticker.lastPrice)});return;}const protectedPosition=await verifyOrProtectPosition(same,market);if(!protectedPosition){botRun.active=false;botRun.status='Protection incertaine · clôture urgente';const closed=await closeBotPosition(same);botRun.status=closed?'Protection absente · position clôturée':'Intervention manuelle requise';botRun.lastError=closed?null:'Clôture non confirmée';addBotEvent('attention',botRun.status,{price:Number(market.ticker.lastPrice)});}else botRun.status='Position protégée · suivi dynamique';return;}
     if(botRun.managedPosition){addBotEvent('exit','Position fermée ou absente sur MEXC',{price:Number(market.ticker?.lastPrice),stopLoss:botRun.managedPosition.lastStopLoss,takeProfit:botRun.managedPosition.lastTakeProfit,detail:'État vérifié en relisant les positions'});botRun.managedPosition=null;}
     if(botRun.emergency){botRun.active=false;botRun.status='Arrêt d’urgence · aucune nouvelle entrée';return;}
-    const cross=macdCross(market.candles),trend5=trendDirection(market.candles5m),trend15=trendDirection(market.candles15m),signal=botSignal(market),closed=market.candles.filter(c=>c.time+60_000<=Date.now()),observedBar=closed.at(-1),phase=signal?'signal confirmé':cross&&cross===trend5&&cross===trend15?'filtres de marché':'confirmation 5/15 min en attente';
+    const cross=macdCross(market.candles),trend5=trendDirection(market.candles5m),trend15=trendDirection(market.candles15m),plannedPrice=Number(market.ticker?.lastPrice),plannedSize=plannedPrice>0?Math.floor((config.allocated*config.marginPercent/100*config.leverage/(plannedPrice*Number(contract.contractSize)))/(Number(contract.volUnit)||1))*(Number(contract.volUnit)||1):0,signal=botSignal(market,plannedSize),closed=market.candles.filter(c=>c.time+60_000<=Date.now()),observedBar=closed.at(-1),phase=signal?'signal confirmé':cross&&cross===trend5&&cross===trend15?'filtres de marché':'confirmation 5/15 min en attente';
     botRun.search={checkedAt:Date.now(),price:Number(market.ticker?.lastPrice),phase,label:signal?'Signal '+(signal.side==='long'?'Long':'Short')+' confirmé · contrôle des conditions':cross&&cross===trend5&&cross===trend15?'MACD et tendance alignés · vérification des filtres':'Recherche active · '+(cross?'confirmation 5/15 min à attendre':'aucun croisement MACD confirmé'),macd:cross,trend5,trend15,candleAt:observedBar?.time||null};
-    if(observedBar&&(observedBar.time!==botRun.lastObservedBar||phase!==botRun.lastSearchPhase)){botRun.lastObservedBar=observedBar.time;botRun.lastSearchPhase=phase;addBotEvent('search',botRun.search.label,{price:Number(market.ticker?.lastPrice),detail:'MACD 1 min · tendance 5/15 min'});}
+    if(observedBar&&(observedBar.time!==botRun.lastObservedBar||phase!==botRun.lastSearchPhase)){botRun.lastObservedBar=observedBar.time;botRun.lastSearchPhase=phase;addBotEvent('search',botRun.search.label,{price:Number(market.ticker?.lastPrice),detail:signal?'MACD 1 min · tendance 5/15 min · spread '+signal.spreadBps.toFixed(1)+' pdb · profondeur vérifiée':'MACD 1 min · tendance 5/15 min · liquidité et filtres en vérification'});}
     if(!signal||signal.bar===botRun.lastSignalBar)return;
     botRun.lastSignalBar=signal.bar;
     const candles=market.candles.filter(c=>c.time+60_000<=Date.now()),atr=atrValue(market.candles),entry=Number(market.ticker.lastPrice),share=config.allocated*config.marginPercent/100,notional=share*config.leverage,contractSize=Number(contract.contractSize),volUnit=Number(contract.volUnit)||1;
