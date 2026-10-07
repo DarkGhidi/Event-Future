@@ -71,7 +71,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          dmg="release/Event-Futures-2.0.1-${{ matrix.arch }}.dmg"
+          dmg="release/Event-Futures-2.0.2-${{ matrix.arch }}.dmg"
           test -s "$dmg"
           mount_point="$(mktemp -d)"
           hdiutil attach "$dmg" -mountpoint "$mount_point" -nobrowse -quiet
@@ -89,7 +89,7 @@ jobs:
           if-no-files-found: error
 
   release:
-    if: github.ref == 'refs/heads/release/v2.0.1'
+    if: github.ref == 'refs/heads/release/v2.0.2'
     needs: [windows, macos]
     runs-on: ubuntu-latest
     permissions:
@@ -107,9 +107,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           draft: true
-          tag_name: v2.0.1
+          tag_name: v2.0.2
           target_commitish: ${{ github.sha }}
-          body_path: RELEASE_NOTES_V2.0.1.md
+          body_path: RELEASE_NOTES_V2.0.2.md
 
       - name: Joindre les trois installateurs
         env:
@@ -123,14 +123,14 @@ jobs:
             find installateurs -maxdepth 4 -type f -print || true
             exit 1
           fi
-          gh release upload v2.0.1 "${files[@]}" --clobber
+          gh release upload v2.0.2 "${files[@]}" --clobber
 
       - name: Vérifier les trois installateurs et publier
         uses: actions/github-script@v7
         with:
           script: |
-            const tag = 'v2.0.1';
-            if (context.ref !== 'refs/heads/release/v2.0.1') throw new Error(`Branche inattendue: ${context.ref}.`);
+            const tag = 'v2.0.2';
+            if (context.ref !== 'refs/heads/release/v2.0.2') throw new Error(`Branche inattendue: ${context.ref}.`);
             const { owner, repo } = context.repo;
             const releases = await github.rest.repos.listReleases({ owner, repo, per_page: 100 });
             const release = releases.data.find(item => item.tag_name === tag && item.draft);

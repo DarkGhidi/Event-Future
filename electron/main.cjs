@@ -234,7 +234,7 @@ if (!singleInstance) {
         let received = 0;
         response.on('data', chunk => {
           received += chunk.length;
-          if (total) app.setProgressBar(Math.min(1, received / total));
+          if (total && mainWindow && !mainWindow.isDestroyed()) mainWindow.setProgressBar(Math.min(1, received / total));
         });
         pipeline(response, fs.createWriteStream(destination)).then(resolve, reject);
       });
@@ -282,7 +282,7 @@ if (!singleInstance) {
         const expectedDigest = typeof asset.digest === 'string' && /^sha256:[a-f0-9]{64}$/i.test(asset.digest) ? asset.digest.slice(7).toLowerCase() : null;
         const actualDigest = crypto.createHash('sha256').update(await fs.promises.readFile(destination)).digest('hex');
         if (!expectedDigest || actualDigest !== expectedDigest || (asset.size && (await fs.promises.stat(destination)).size !== asset.size)) throw new Error('La vérification d’intégrité a échoué.');
-        app.setProgressBar(-1);
+        if (mainWindow && !mainWindow.isDestroyed()) mainWindow.setProgressBar(-1);
         const openError = await shell.openPath(destination);
         if (openError) throw new Error(openError);
         if (process.platform === 'darwin') {
@@ -295,7 +295,7 @@ if (!singleInstance) {
         }
         app.quit();
       } catch (error) {
-        app.setProgressBar(-1);
+        if (mainWindow && !mainWindow.isDestroyed()) mainWindow.setProgressBar(-1);
         await fs.promises.rm(destination, { force: true }).catch(() => {});
         await dialog.showMessageBox(mainWindow, {
           type: 'error',
