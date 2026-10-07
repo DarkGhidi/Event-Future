@@ -1,4 +1,5 @@
-const { app, BrowserWindow, dialog, Menu, shell, safeStorage, ipcMain } = require('electron');
+const { app, BrowserWindow, dialog, Menu, shell, safeStorage, ipcMain, powerSaveBlocker } = require('electron');
+let botPowerBlockerId = null;
 const fs = require('node:fs');
 const crypto = require('node:crypto');
 const https = require('node:https');
@@ -33,6 +34,21 @@ if (!singleInstance) {
     try { return new URL(event.senderFrame.url).origin === new URL(APP_URL).origin; } catch { return false; }
   }
   function registerCredentialIpc() {
+    ipcMain.handle('bot-runtime:keep-awake', event => {
+      if (!allowedIpcSender(event)) return { active:false };
+      try {
+        if (botPowerBlockerId === null) botPowerBlockerId = powerSaveBlocker.start('prevent-app-suspension');
+        return { active:powerSaveBlocker.isStarted(botPowerBlockerId) };
+      } catch { return { active:false }; }
+    });
+    ipcMain.handle('bot-runtime:allow-sleep', event => {
+      if (!allowedIpcSender(event)) return { active:false };
+      if (botPowerBlockerId !== null) {
+        try { powerSaveBlocker.stop(botPowerBlockerId); } catch {}
+        botPowerBlockerId = null;
+      }
+      return { active:false };
+    });
     ipcMain.handle('mexc-credentials:status', async event => {
       if (!allowedIpcSender(event)) return { available:false, saved:false };
       return { available:['win32','darwin'].includes(process.platform) && await safeStorage.isAsyncEncryptionAvailable(), saved:credentialsSaved };
@@ -352,6 +368,7 @@ if (!singleInstance) {
   });
 
   app.on('before-quit', () => {
+    if (botPowerBlockerId !== null) { try { powerSaveBlocker.stop(botPowerBlockerId); } catch {} botPowerBlockerId = null; }
     if (localServer?.listening) localServer.close();
   });
 
