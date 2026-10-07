@@ -215,7 +215,7 @@ async function pollMexcIndexFallback() {
     state.streamError=null;state.lastPrice=priceValue;state.lastTradeAt=normalizedTime;state.lastReceivedAt=received;
     state.lastTradeLatency=Math.max(0,received-(normalizedTime+serverClockOffset));
     updateMexcIndexCandles(normalizedTime,priceValue);state.analysis=analyze();settleSignalEvents();renderAnalysis();
-  }catch(error){state.streamError=error?.name||error?.code||'NETWORK_ERROR';renderFeedDiagnostic();}finally{state.indexFallbackBusy=false;}
+  }catch(error){state.streamError=error?.code||error?.message||error?.cause?.code||error?.name||'NETWORK_ERROR';renderFeedDiagnostic();}finally{state.indexFallbackBusy=false;}
 }
 function connectMexcIndex() {
   try {
