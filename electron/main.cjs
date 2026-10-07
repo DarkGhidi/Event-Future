@@ -215,7 +215,9 @@ if (!singleInstance) {
     mainWindow.on('closed', () => { mainWindow = null; });
     if (smokeTest) mainWindow.webContents.once('dom-ready', async () => {
       try {
+        console.log('SMOKE_EXECUTE_JAVASCRIPT_BEGIN');
         const result = await mainWindow.webContents.executeJavaScript('window.__eventFuturesSmoke()');
+        console.log('SMOKE_EXECUTE_JAVASCRIPT_RESOLVED');
         if (!result?.ok) throw new Error('Le test de démarrage local a échoué.');
         console.log('SMOKE_TEST_OK ' + JSON.stringify(result));
         app.exit(0);
@@ -224,7 +226,8 @@ if (!singleInstance) {
         app.exit(1);
       }
     });
-    mainWindow.loadURL(APP_URL).catch(error => {
+    const windowUrl = smokeTest ? APP_URL + '?smoke=1' : APP_URL;
+    mainWindow.loadURL(windowUrl).catch(error => {
       if (smokeTest) {
         console.error('SMOKE_LOAD_REJECTED ' + String(error?.message || error));
         app.exit(1);
