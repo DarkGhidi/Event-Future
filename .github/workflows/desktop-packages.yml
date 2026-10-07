@@ -103,15 +103,27 @@ jobs:
           merge-multiple: true
       - name: Récupérer les notes de version
         uses: actions/checkout@v4
-      - name: Joindre les installateurs à la version brouillon
+      - name: Créer la version brouillon avec les notes
         uses: softprops/action-gh-release@v2
         with:
           draft: true
           tag_name: v2.0.0
           target_commitish: ${{ github.sha }}
-          files: installateurs/*
-          overwrite_files: true
           body_path: RELEASE_NOTES_V2.0.0.md
+
+      - name: Joindre les trois installateurs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t files < <(find installateurs -type f \\( -name '*.exe' -o -name '*.dmg' \\) -print)
+          if [ "${#files[@]}" -ne 3 ]; then
+            printf 'Nombre d’installateurs inattendu : %s\\n' "${#files[@]}"
+            find installateurs -maxdepth 4 -type f -print || true
+            exit 1
+          fi
+          gh release upload v2.0.0 "${files[@]}" --clobber
 
       - name: Vérifier les trois installateurs et publier
         uses: actions/github-script@v7
