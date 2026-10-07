@@ -1,6 +1,6 @@
 {
   "name": "event-futures-desktop",
-  "version": "2.0.2",
+  "version": "2.0.3",
   "private": true,
   "description": "Application locale d’analyse MEXC Event Futures BTC et ETH et de suivi Futures",
   "author": "Event/Lab",
@@ -46,7 +46,9 @@
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "artifactName": "Event-Futures-Setup-${version}-${arch}.${ext}"
@@ -58,7 +60,9 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "Event Futures",
-      "installerLanguages": ["fr_FR"],
+      "installerLanguages": [
+        "fr_FR"
+      ],
       "language": "1036"
     },
     "mac": {
@@ -66,7 +70,10 @@
       "target": [
         {
           "target": "dmg",
-          "arch": ["arm64", "x64"]
+          "arch": [
+            "arm64",
+            "x64"
+          ]
         }
       ],
       "artifactName": "Event-Futures-${version}-${arch}.${ext}",
@@ -76,10 +83,18 @@
     "dmg": {
       "title": "Event Futures ${version}",
       "contents": [
-        {"x": 130, "y": 220, "type": "file"},
-        {"x": 410, "y": 220, "type": "link", "path": "/Applications"}
+        {
+          "x": 130,
+          "y": 220,
+          "type": "file"
+        },
+        {
+          "x": 410,
+          "y": 220,
+          "type": "link",
+          "path": "/Applications"
+        }
       ]
     }
   }
 }
-

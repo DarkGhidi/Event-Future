@@ -76,7 +76,7 @@ async function fetchBotMarket(symbol) {
   if (!allowedBotSymbol(symbol)) throw new Error('symbol_invalid');
   const [tickerData, detailData, oneData, fiveData, fifteenData] = await Promise.all([
     fetchMexcPublic('https://api.mexc.com/api/v1/contract/ticker?symbol=' + symbol),
-    fetchMexcPublic('https://api.mexc.com/api/v1/contract/detail/country?symbol=' + symbol),
+    fetchMexcPublic('https://api.mexc.com/api/v1/contract/detail?symbol=' + symbol),
     fetchMexcPublic('https://api.mexc.com/api/v1/contract/kline/' + symbol + '?interval=Min1'),
     fetchMexcPublic('https://api.mexc.com/api/v1/contract/kline/' + symbol + '?interval=Min5'),
     fetchMexcPublic('https://api.mexc.com/api/v1/contract/kline/' + symbol + '?interval=Min15')
@@ -245,6 +245,16 @@ function printAccess() {
 }
 export const server = http.createServer(async (req, res) => {
   const pathname = decodeURIComponent(new URL(req.url, 'http://localhost').pathname);
+    if(pathname==='/api/market/index-price'&&req.method==='GET'){
+    const symbol=new URL(req.url,'http://localhost').searchParams.get('symbol')||'BTC_USDT';
+    if(!allowedEventSymbol(symbol))return apiReply(res,400,{error:'Marché Event Futures non autorisé.'});
+    try{
+      const data=await fetchMexcPublic('https://api.mexc.com/api/v1/contract/index_price/'+encodeURIComponent(symbol));
+      const price=Number(data?.indexPrice),timestamp=Number(data?.timestamp);
+      if(data?.symbol!==symbol||!Number.isFinite(price)||price<=0||!Number.isFinite(timestamp))throw new Error('index_response_invalid');
+      return apiReply(res,200,{success:true,data:{symbol,price,timestamp},receivedAt:Date.now(),source:'index MEXC'});
+    }catch(error){const code=error?.cause?.code||error?.code||error?.name||'unknown';console.error('[market-index] MEXC public endpoint failed:',code);return apiReply(res,502,{error:'Prix de l’index MEXC momentanément indisponible.',code});}
+  }
   if(pathname==='/api/market/time'&&req.method==='GET'){
     const symbol=new URL(req.url,'http://localhost').searchParams.get('symbol')||'BTC_USDT';if(!allowedEventSymbol(symbol))return apiReply(res,400,{error:'Marché Event Futures non autorisé.'});
     try{let serverTime=null,source='ping';try{serverTime=Number(await fetchMexcPublic('https://api.mexc.com/api/v1/contract/ping'));}catch{}if(!Number.isFinite(serverTime)||serverTime<=0){source='index';const data=await fetchMexcPublic('https://api.mexc.com/api/v1/contract/index_price/'+encodeURIComponent(symbol));serverTime=Number(data?.timestamp);}if(serverTime>0&&serverTime<100_000_000_000)serverTime*=1000;if(!Number.isFinite(serverTime)||serverTime<1_500_000_000_000||serverTime>Date.now()+86_400_000)throw new Error('timestamp_unavailable');return apiReply(res,200,{serverTime,source});}catch(error){const code=error?.cause?.code||error?.code||error?.name||'unknown';console.error('[market-time] MEXC public endpoint failed:',code);return apiReply(res,502,{error:'Référence horaire MEXC indisponible.',code});}
