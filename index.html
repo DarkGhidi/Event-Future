@@ -24,6 +24,10 @@
 
     <main id="top" role="tabpanel" aria-labelledby="eventFuturesTab">
       <div class="market-selector"><div><span class="eyebrow">MARCHÉS CRYPTO · INDEX MEXC</span><span id="marketConfigNote" class="market-config-note">Chargement du catalogue de marchés…</span></div><nav id="eventMarketTabs" class="event-market-tabs" role="tablist" aria-label="Marchés Event Futures"></nav></div>
+      <section id="feedDiagnostic" class="feed-diagnostic" role="status" aria-live="polite" hidden>
+        <div><strong id="feedDiagnosticTitle">Données MEXC indisponibles</strong><p id="feedDiagnosticDetails">Vérification du flux en cours.</p></div>
+        <button id="retryFeedButton" class="button secondary" type="button">Réessayer</button>
+      </section>
       <section class="hero-grid">
         <div class="hero-copy">
           <div class="eyebrow"><span id="connectionState" class="connection"><i></i> Connexion…</span></div>
