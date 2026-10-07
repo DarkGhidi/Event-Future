@@ -209,7 +209,7 @@ async function botTradingTick(){
     const minVol=Number(contract.minVol),maxVol=Math.min(Number(contract.maxVol),Number(contract.limitMaxVol)||Infinity);
     if(!Number.isFinite(vol)||vol<minVol||vol>maxVol||config.leverage>maxLeverage)throw new Error('volume_or_leverage_out_of_range');
     const account=await readBotAccount(botCredentials),usdt=account.assets.find(x=>String(x.currency||'').toUpperCase()==='USDT'),available=Number(usdt?.availableBalance??usdt?.available??usdt?.equity);
-    if(!Number.isFinite(available)||available<share*1.03)throw new Error('insufficient_available_margin');
+    if(!Number.isFinite(available)||available<(notional/config.leverage)*1.03)throw new Error('insufficient_available_margin');
     const bar=candles.at(-1);if(!bar||Date.now()-(bar.time+60_000)>90_000)throw new Error('signal_data_stale');
     const long=signal.side==='long',tick=Number(contract.priceUnit)||.000001,sl=quantize(entry+(long?-1.5:1.5)*atr,tick,long?'down':'up'),tp=quantize(entry+(long?3:-3)*atr,tick,long?'up':'down');
     const positionMode=Number(config.positionMode);
@@ -332,7 +332,7 @@ export const server = http.createServer(async (req, res) => {
         const latestClosed=preflight.market.candles.filter(c=>c.time+60_000<=Date.now()).at(-1)?.time||0;
         startBotRuntime({...config,positionMode:preflight.positionMode,initialBar:latestClosed});
         botRun.lastSignalBar=latestClosed;
-        return apiReply(res,200,{...botStatusPayload(),margin:preflight.margin,notional:preflight.margin*config.leverage,available:preflight.available,strategy:'MACD 1 min + tendance 5/15 min',exits:'SL 1,5 ATR · TP 3 ATR · trailing après +1,5 ATR'});
+        return apiReply(res,200,{...botStatusPayload(),margin:preflight.margin,notional:preflight.notional,riskBudget:preflight.riskBudgetUsd,estimatedStopLoss:preflight.estimatedLossUsd,available:preflight.available,strategy:'MACD 1 min + tendance 5/15 min',exits:'SL 1,5 ATR · TP 3 ATR · trailing après +1,5 ATR'});
       }catch(error){console.warn('Bot preflight blocked:',String(error?.code||error?.message||'unknown'));return apiReply(res,409,{error:({api_key_required:'Clé MEXC non connectée.',settings_invalid:'Réglages invalides.',contract_or_market_blocked:'Contrat ou marché non autorisé par MEXC.',existing_position:'Une position existe déjà sur ce contrat.',existing_orders:'Des ordres sont déjà ouverts sur ce contrat.',position_mode_unknown:'Mode de position MEXC inconnu.',insufficient_available_margin:'Solde Futures disponible insuffisant.',volume_or_leverage_out_of_range:'Taille ou levier hors limites MEXC.',signal_data_stale:'Données du signal périmées.'})[error.message]||'Pré-vérification MEXC impossible.'});}
     }
     if(pathname==='/api/bot/stop'&&req.method==='POST'){
