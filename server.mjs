@@ -76,7 +76,7 @@ async function fetchBotMarket(symbol) {
   if (!allowedBotSymbol(symbol)) throw new Error('symbol_invalid');
   const [tickerData, detailData, oneData, fiveData, fifteenData] = await Promise.all([
     fetchMexcPublic('https://api.mexc.com/api/v1/contract/ticker?symbol=' + symbol),
-    fetchMexcPublic('https://api.mexc.com/api/v1/contract/detail?symbol=' + symbol),
+    fetchMexcPublic('https://api.mexc.com/api/v1/contract/detail/country?symbol=' + symbol),
     fetchMexcPublic('https://api.mexc.com/api/v1/contract/kline/' + symbol + '?interval=Min1'),
     fetchMexcPublic('https://api.mexc.com/api/v1/contract/kline/' + symbol + '?interval=Min5'),
     fetchMexcPublic('https://api.mexc.com/api/v1/contract/kline/' + symbol + '?interval=Min15')
