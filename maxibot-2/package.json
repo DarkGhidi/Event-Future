@@ -1,0 +1,67 @@
+{
+  "name": "maxibot-2-desktop",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Simulation crypto locale avec connexion officielle ChatGPT et MEXC",
+  "author": "Maxibot Contributors",
+  "license": "MIT",
+  "type": "module",
+  "main": "desktop/main.mjs",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test tests/engine.test.mjs tests/cli.test.mjs tests/desktop.test.mjs",
+    "check": "node scripts/check.mjs",
+    "dist:win": "electron-builder --win nsis portable --x64 --publish never"
+  },
+  "dependencies": {
+    "jose": "5.10.0"
+  },
+  "devDependencies": {
+    "electron": "44.0.0",
+    "electron-builder": "26.17.0"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "build": {
+    "appId": "com.maxibot.desktop2",
+    "productName": "Maxibot 2.0",
+    "asar": false,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "desktop/**",
+      "core/**",
+      "ui/**",
+      "web/data.mjs",
+      "config.json",
+      "docs/**",
+      "README.md",
+      "LICENSE",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "artifactName": "Maxibot-Setup-2.0.0-x64.exe",
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "installerLanguages": [
+        "fr_FR"
+      ],
+      "language": "1036"
+    },
+    "portable": {
+      "artifactName": "Maxibot-Portable-2.0.0-x64.exe"
+    }
+  }
+}
