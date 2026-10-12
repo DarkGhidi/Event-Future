@@ -8,7 +8,7 @@ permissions:
   contents: read
 concurrency:
   group: maxibot-windows-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 jobs:
   windows:
     runs-on: windows-latest
@@ -28,13 +28,22 @@ jobs:
       - run: npm test
       - run: npm run dist:win
       - name: Verify packaged application
+        timeout-minutes: 3
         shell: pwsh
         run: |
-          $process = Start-Process -FilePath '.\release\win-unpacked\Maxibot 2.0.exe' -ArgumentList '--smoke-test' -Wait -PassThru
+          $process = Start-Process -FilePath '.\release\win-unpacked\Maxibot 2.0.exe' -ArgumentList '--smoke-test' -Wait -PassThru -RedirectStandardOutput smoke-stdout.txt -RedirectStandardError smoke-stderr.txt
+          Get-Content smoke-stage.txt,smoke-stdout.txt,smoke-stderr.txt -ErrorAction SilentlyContinue
+          Get-Content smoke-result.json -ErrorAction SilentlyContinue
           if ($process.ExitCode -ne 0) { throw "Packaged smoke failed: $($process.ExitCode)" }
           $result = Get-Content smoke-result.json -Raw | ConvertFrom-Json
           if (!$result.ok -or !$result.storage -or $result.heading -ne 'Maxibot 2.0') { throw 'Invalid smoke result' }
           Get-Content smoke-result.json
+      - name: Upload packaged verification
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: maxibot-verification
+          path: maxibot-2/smoke-*
       - name: Verify binaries and checksums
         shell: pwsh
         run: |

@@ -11,8 +11,9 @@ import { Mexc } from '../core/mexc.mjs';
 import { loadConfig } from '../core/io.mjs';
 import { buildReport } from '../core/engine.mjs';
 const base=dirname(dirname(fileURLToPath(import.meta.url))), smoke=process.argv.includes('--smoke-test');
+const stage=name=>{if(smoke)writeFileSync(join(process.cwd(),'smoke-stage.txt'),name);};
+stage('module-loaded');
 if(smoke)app.setPath('userData',mkdtempSync(join(tmpdir(),'maxibot-smoke-')));
-protocol.registerSchemesAsPrivileged([{scheme:'maxibot',privileges:{standard:true,secure:true,supportFetchAPI:true}}]);
 app.setAppUserModelId('com.maxibot.desktop2');
 if(!app.requestSingleInstanceLock())app.quit();
 let win, vault, chatgpt, runner, modelList=[], blocker=null, quitting=false, waitingForQuit=false;
@@ -38,7 +39,7 @@ function handle(name, fn) {
 }
 function stopBlocker(){if(blocker!==null&&powerSaveBlocker.isStarted(blocker))powerSaveBlocker.stop(blocker);blocker=null;}
 const keyValue = v => typeof v==='string'&&v.length>=8&&v.length<=512&&!/[\s\u0000]/.test(v);
-await app.whenReady();
+await app.whenReady();stage('app-ready');
 try {
   const assets={'/index.html':['index.html','text/html; charset=utf-8'],'/app.js':['app.js','text/javascript; charset=utf-8'],'/style.css':['style.css','text/css; charset=utf-8']};
   protocol.handle('maxibot',request=>{
@@ -54,7 +55,7 @@ try {
     if(u.origin!=='https://auth.openai.com'||u.pathname!=='/api/accounts/authorize')throw new Error('AUTH_URL_INVALID');
     return shell.openExternal(url);
   });
-  startRunner();
+  startRunner();stage('storage-and-runner-ready');
   handle('state',lane=>({chatgpt:chatgpt.session(),mexc:{connected:!!vault.get('mexc')?.verified,spotRead:vault.get('mexc')?.spotRead||false,futuresRead:vault.get('mexc')?.futuresRead===true},dashboard:runner.snapshot(typeof lane==='string'&&lane.length<150?lane:undefined),version:app.getVersion()}));
   handle('chatgpt-connect',async arg=>{
     if(runner.active)throw new Error('STOP_BEFORE_ACCOUNT_CHANGE');
@@ -97,13 +98,15 @@ try {
     if(!smoke&&!quitting&&runner.active){e.preventDefault();const answer=await dialog.showMessageBox(win,{type:'question',buttons:['Continuer la simulation','Arrêter et quitter'],defaultId:0,cancelId:0,message:'La simulation s’arrête si Maxibot 2.0 est fermé.',detail:'Le journal reste enregistré et peut être repris à la prochaine ouverture.'});if(answer.response===1){quitting=true;runner.stop();app.quit();}}
   });
   powerMonitor.on('resume',()=>{if(runner.active&&!runner.busy){clearTimeout(runner.timer);runner.cycle();}});
-  await win.loadURL('maxibot://app/index.html');
+  stage('window-created');await win.loadURL('maxibot://app/index.html');stage('window-loaded');
   if(smoke){
     const result=await win.webContents.executeJavaScript("(async()=>{const r=await window.maxibot.state();return {bridge:!!window.maxibot,ok:r.ok,status:r.value?.dashboard.status,heading:document.querySelector('h1')?.textContent,forms:document.querySelectorAll('form').length}})()");
     if(!result.bridge||!result.ok||result.status!=='not_started'||result.heading!=='Maxibot 2.0'||result.forms<2)throw new Error('SMOKE_FAILED');
     // Exercise packaged native SQLite and Windows DPAPI without accounts or Internet.
     vault.set('smokeFixture',{test:'non-secret'});if(vault.get('smokeFixture').test!=='non-secret')throw new Error('SMOKE_STORAGE_FAILED');
     writeFileSync(join(process.cwd(),'smoke-result.json'),JSON.stringify({...result,node:process.versions.node,electron:process.versions.electron,storage:true}));
+    await win.webContents.executeJavaScript("document.getElementById('demo').click()");
+    const screenshot=await win.webContents.capturePage();writeFileSync(join(process.cwd(),'smoke-preview.png'),screenshot.toPNG());
     runner.close();app.exit(0);
   }
 } catch(e) {

@@ -6,7 +6,7 @@
   "author": "Maxibot Contributors",
   "license": "MIT",
   "type": "module",
-  "main": "desktop/main.mjs",
+  "main": "desktop/bootstrap.cjs",
   "scripts": {
     "start": "electron .",
     "test": "node --test tests/engine.test.mjs tests/cli.test.mjs tests/desktop.test.mjs",
