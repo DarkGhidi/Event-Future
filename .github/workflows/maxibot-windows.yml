@@ -11,6 +11,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   windows:
+    if: github.event_name == 'workflow_dispatch' || !startsWith(github.event.head_commit.message, '[maxibot publish]')
     runs-on: windows-latest
     timeout-minutes: 25
     permissions:
@@ -96,6 +97,7 @@ jobs:
           name: maxibot-windows
           path: maxibot-dist
       - name: Stage prerelease
+        id: staged
         if: steps.current.outputs.publish == 'true'
         uses: softprops/action-gh-release@v2
         with:
@@ -114,10 +116,12 @@ jobs:
       - name: Verify and publish
         if: steps.current.outputs.publish == 'true'
         uses: actions/github-script@v7
+        env:
+          RELEASE_ID: ${{ steps.staged.outputs.id }}
         with:
           script: |
             const owner = context.repo.owner, repo = context.repo.repo;
-            const { data: release } = await github.rest.repos.getReleaseByTag({owner,repo,tag:'maxibot-v2.0.0-alpha.1'});
+            const { data: release } = await github.rest.repos.getRelease({owner,repo,release_id:Number(process.env.RELEASE_ID)});
             if (release.target_commitish !== context.sha) throw new Error('Release commit mismatch');
             const { data: assets } = await github.rest.repos.listReleaseAssets({owner,repo,release_id:release.id});
             for (const name of ['Maxibot-Setup-2.0.0-x64.exe','Maxibot-Portable-2.0.0-x64.exe','SHA256SUMS.txt']) {

@@ -1,0 +1,40 @@
+name: Publish verified Maxibot 2.0
+on:
+  push:
+    branches: ['maxibot/windows-v2.0.0']
+    paths: ['.github/workflows/maxibot-publish-verified.yml']
+permissions:
+  contents: write
+  actions: read
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const expected = '4870de843c5068735283b3fe06d9f15bd09bd9af';
+            const {data: run} = await github.rest.actions.getWorkflowRun({...context.repo,run_id:38319732436});
+            if (run.head_sha !== expected || run.status !== 'completed') throw new Error('Unexpected build');
+            const {data: jobs} = await github.rest.actions.listJobsForWorkflowRun({...context.repo,run_id:run.id});
+            if (!jobs.jobs.some(j => j.id === 115044761312 && j.name === 'windows' && j.conclusion === 'success')) throw new Error('Windows verification missing');
+            async function sourceTree(commit_sha) {
+              const {data: commit} = await github.rest.git.getCommit({...context.repo,commit_sha});
+              const {data: tree} = await github.rest.git.getTree({...context.repo,tree_sha:commit.tree.sha});
+              return tree.tree.find(e=>e.path==='maxibot-2')?.sha;
+            }
+            const original = await sourceTree(expected);
+            if (!original || original !== await sourceTree(context.sha)) throw new Error('Application changed after validation');
+            const {data: release} = await github.rest.repos.getRelease({...context.repo,release_id:411061677});
+            if (release.tag_name !== 'maxibot-v2.0.0-alpha.1' || release.target_commitish !== expected) throw new Error('Unexpected release');
+            const {data: assets} = await github.rest.repos.listReleaseAssets({...context.repo,release_id:release.id});
+            const hashes = {
+              'Maxibot-Setup-2.0.0-x64.exe':'sha256:551e5349a20219f2e154278073192fd7915ebfd5f48fe076b98de4461c9c5b2f',
+              'Maxibot-Portable-2.0.0-x64.exe':'sha256:85510457202e43e0221f9fe6e2cedcdb6bd1a1cdea0a4eb2b293fae25ea6c1f3',
+              'SHA256SUMS.txt':'sha256:b41ff4725c4891a1e9d5568fde26560398fc2f507fc490a8212c11f559564ef2'
+            };
+            for (const [name,digest] of Object.entries(hashes)) {
+              const asset = assets.find(a=>a.name===name);
+              if (!asset || asset.state !== 'uploaded' || asset.size <= 0 || asset.digest !== digest) throw new Error('Asset mismatch: '+name);
+            }
+            await github.rest.repos.updateRelease({...context.repo,release_id:release.id,draft:false,prerelease:true,make_latest:'false'});
