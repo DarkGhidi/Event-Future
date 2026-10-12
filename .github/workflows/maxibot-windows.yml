@@ -7,7 +7,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: maxibot-windows-${{ github.ref }}
+  group: maxibot-windows-v2-${{ github.ref }}
   cancel-in-progress: true
 jobs:
   windows:
