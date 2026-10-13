@@ -1,99 +1,122 @@
-# Maxibot 2.0 — Windows
+# Maxibot 2.0 — Windows, version 2.1.0 bêta
 
-Application locale open source de **simulation** crypto avec connexion
-officielle ChatGPT et lecture MEXC. Chaque personne utilise ses propres
-connexions. Le programme ne contient ni clé partagée, ni mot de passe,
-ni compte du créateur. Aucun ordre réel n'est implémenté dans cette version.
+Un montant global en USDT, un bouton ON/OFF. GPT choisit automatiquement
+les opportunités, les marchés disponibles, la direction, la taille,
+les prix de stop/prise de bénéfices et le levier permis par MEXC.
+Plusieurs positions peuvent partager le même budget. Aucun choix de
+profil ou de modèle GPT n'est demandé dans le fonctionnement normal.
 
-Les installateurs et la version portable Windows x64 sont publiés dans les
-Releases du dépôt DarkGhidi/Event-Future avec le préfixe Maxibot 2.0.
-L'application Event Futures existante est un autre programme.
+## Installer
 
-## Installer et connecter
+Télécharger Maxibot-Setup-2.1.0-x64.exe ou Maxibot-Portable-2.1.0-x64.exe
+dans la release maxibot-v2.1.0-beta.1 de DarkGhidi/Event-Future.
+Windows x64, dépendances incluses. Binaires non signés ; SHA256 joints.
+Les versions 2.0.0 sont des versions antérieures de simulation seulement.
 
-1. Télécharger **Maxibot-Setup-2.0.0-x64.exe**, ou le fichier Portable.
-   Node.js et les dépendances sont inclus. Première version non signée ;
-   les empreintes SHA256 sont jointes à la release.
-2. Ouvrir Maxibot 2.0. Cliquer **Continue with ChatGPT**. L'authentification
-   se fait dans le navigateur officiel OpenAI. Choisir son compte et
-   autoriser l'utilisation du forfait, si celui-ci est éligible.
-3. Choisir un modèle GPT proposé par ce compte. Plus/Pro éligible et
-   permission de forfait sont nécessaires. La disponibilité et les limites
-   sont celles appliquées par OpenAI ; l'application ne les contourne pas.
-4. Facultatif pendant la simulation : créer une clé MEXC dédiée en lecture,
-   sans retraits/transferts, puis saisir Access Key et Secret Key dans
-   Maxibot 2.0. Cliquer **Tester et enregistrer**. La lecture Futures peut
-   être ajoutée séparément. La simulation utilise les prix publics MEXC.
-5. Choisir le capital fictif et les marchés, puis démarrer. Garder le PC
-   allumé, Internet disponible et Maxibot 2.0 ouvert. Réduire la fenêtre
-   laisse le moteur fonctionner ; fermer l'app l'arrête.
+## Connecter, allouer, mettre ON
 
-Le guide complet est aussi intégré à l'application.
+1. Ouvrir Connexions, puis Continue with ChatGPT. L'identification se fait
+   dans le navigateur officiel OpenAI. Un forfait éligible et l'autorisation
+   de son usage sont requis. Le modèle GPT disponible est choisi automatiquement.
+2. Dans la gestion API MEXC, créer une clé dédiée avec SPOT_ACCOUNT_READ,
+   SPOT_DEAL_READ, SPOT_DEAL_WRITE. Sans retrait ni transfert en écriture.
+   Coller Access Key et Secret Key dans l'application et tester/enregistrer.
+3. Pour autoriser aussi Futures, ajouter CONTRACT_ACCOUNT_READ,
+   CONTRACT_DEAL_READ, CONTRACT_DEAL_WRITE et SPOT_ACCOUNT_READ à la clé
+   utilisée dans les champs Futures. La clé peut être la même que pour Spot.
+   Les deux clés doivent appartenir au même compte ; l'UID est vérifié.
+   KYC, restrictions de compte/pays, marchés et permissions restent ceux de MEXC.
+4. Indiquer le montant GLOBAL alloué en USDT, puis ON. Le programme observe
+   pendant sept jours de couverture puis passe automatiquement au réel si
+   ON reste actif et si les permissions et les soldes disponibles le permettent.
+   La progression est affichée. Les périodes sans données ne comptent pas.
+   Les gains fictifs ne sont jamais ajoutés au capital réel.
+5. OFF interdit de nouvelles entrées. Les positions existantes continuent
+   d'être suivies et leurs sorties peuvent être exécutées. Fermer l'application
+   est différent d'OFF : le suivi local s'arrête.
 
-## Fonctionnement
+Un montant alloué n'est pas un transfert ni un coffre séparé sur MEXC.
+Le logiciel limite ses réservations et demandes d'ordre à son budget ;
+utiliser un compte/sous-compte dédié pour isoler ses fonds et éviter
+les modifications de positions par d'autres applications. Aucun endpoint
+pour transférer ou retirer des fonds n'est inclus.
 
-- Spot et Futures classiques, exposition simulée 1× ; pas d'Event Futures.
-- GPT seul : requêtes officielles Responses API avec le forfait autorisé,
-  JSON validé, refus et réponses incomplètes ignorés.
-- Sept jours calendrier : cinq jours d'exploration de trois profils de
-  confiance, puis deux jours de validation avec sélection/règles gelées.
-  Cette comparaison ne réentraîne pas les poids du modèle GPT.
-- Collecte environ une fois par minute, décisions environ toutes les dix
-  minutes ; plafonds de 144 appels et 300 000 tokens réservés par jour.
-- Frais/slippage hypothétiques, funding, stops, durée de détention, plafonds
-  de baisse et de perte. Modélisation fictive, sans garantie de performance.
-- Pause des entrées : les sorties fictives et observations continuent.
-  Arrêt : le moteur s'arrête. Une pause pendant GPT bloque les nouvelles entrées.
-- Au redémarrage, la simulation se reprend explicitement avec son journal.
-  Les heures sans PC ne sont pas simulées comme une couverture continue.
-- Chaque variante conserve son propre portefeuille. Les chiffres de
-  démonstration restent dans l'interface et ne sont jamais importés.
-- Aucun passage automatique en réel à la fin de la semaine. La copie de
-  traders n'a pas de source connectée dans cette version.
+## Moteur réel
 
-## Données et sécurité
+- Endpoints officiels signés : Spot MARKET et Futures MARKET en marge isolée.
+- Pas de plafond de levier arbitraire : compte, pays, contrat, paliers de risque,
+  volumes et marge de maintenance sont relus et validés. Un levier demandé
+  hors limite ou un stop au-delà de la liquidation estimée est refusé.
+- Le stop et TP Futures sont joints à l'ordre. Leur présence est vérifiée
+  dans le retour officiel et la marge automatique est désactivée. Une protection
+  non confirmée provoque OFF et une tentative de clôture de protection.
+- Spot : l'API d'envoi documentée n'expose pas de stop natif utilisable ici.
+  Les sorties sont locales : PC et application ouverts, Internet et API
+  disponibles sont nécessaires. OFF conserve ce suivi ; quitter le coupe.
+- Registre SQLite unique ; fonds réservés AVANT chaque envoi. Une réponse
+  réseau incertaine conserve la réserve et est recherchée par identifiant.
+  Aucun renvoi automatique d'un ordre dont le résultat n'est pas connu.
+- Quantités réellement exécutées, frais et réductions partielles sont suivis.
+  Le résultat final Futures attend l'historique confirmé de la position.
+  Les frais Spot dans une troisième devise sont valorisés au cours observé,
+  ce qui constitue une estimation ; les montants de commission restent distincts.
+- Une intervention externe ou un solde incompatible suspend les entrées.
+- Au redémarrage les entrées restent OFF ; les positions/ordres conservés sont
+  réconciliés et leurs sorties suivies. Mettre ON est nécessaire pour reprendre
+  de nouvelles entrées. Ne pas utiliser plusieurs copies sur différents PC
+  pour le même compte : le verrou d'instance est local au PC.
 
-Les journaux SQLite et rapports sont enregistrés dans le dossier utilisateur
-de Maxibot 2.0. Un nouvel essai archive le précédent sans le supprimer.
-Les connexions sont chiffrées avec Electron safeStorage/Windows DPAPI.
-Cela les protège des autres comptes Windows ; un logiciel malveillant
-s'exécutant sous le même compte Windows reste hors de cette protection.
-Le programme refuse une dégradation du stockage en clair.
+## FOMO et copie
 
-Les jetons OpenAI ne passent pas au moteur d'affichage. MEXC reçoit ses
-requêtes signées en lecture ; OpenAI reçoit les données de marché et les
-candidats de décision, jamais les clés MEXC. Aucune télémétrie ni serveur
-du créateur n'est ajouté. GitHub ne reçoit que le code et les binaires.
+Le scan dynamique utilise les actifs MEXC négociables via API. GPT reçoit
+prix, volumes, momentum, spread et données des positions. Les résultats
+clôturés et les événements récents lui donnent un retour sur les décisions.
+Cela ne réentraîne pas les poids de GPT et ne prouve pas une rentabilité.
 
-La déconnexion efface les jetons locaux ; la révocation distante n'est pas
-confirmée. L'utilisateur peut retirer l'autorisation dans les réglages
-ChatGPT. L'application n'est pas un produit officiel OpenAI ou MEXC.
+Le module de copie peut lire un flux externe JSONL MEXC sélectionné dans
+Connexions. Le fichier doit être alimenté par une source extérieure. Chaque
+ligne contient id, venue="mexc", market="spot" ou "futures", symbol MEXC,
+leader, time (millisecondes), action LONG/SHORT/CLOSE. Un signal ne reste
+valide que deux minutes ; les identifiants sont dédupliqués. GPT évalue les
+entrées ; les sorties du leader ne touchent que ses propres positions copiées.
+Ce module ne vérifie pas l'identité on-chain d'un wallet : la source externe
+est responsable de la correspondance d'actif et de l'authenticité des données.
 
-## Développer et compiler
+Aucun connecteur direct CopyFOMO n'est fourni. Sans flux externe, le tableau
+indique copie non connectée ; l'analyse autonome et le momentum fonctionnent.
+Les limites de requêtes et de forfait GPT peuvent suspendre l'analyse des
+entrées. Elles ne désactivent pas le suivi des sorties.
 
-Node 24+ pour développer, puis :
+## Validation et limites de cette bêta
+
+Tests automatisés avec fixtures d'ordres, signatures, budget, reprises,
+permissions et protections, puis test de démarrage empaqueté Windows.
+Ces tests ne constituent pas des essais d'exécution avec un compte réel.
+L'accès OAuth personnel, les permissions MEXC et les exécutions doivent
+être vérifiés sur le PC et le compte de chaque utilisateur.
+
+Connexions chiffrées localement via Windows DPAPI. Les clés MEXC ne sont
+jamais envoyées à GPT, au tableau de bord, à GitHub ou au créateur.
+Le programme n'est pas un produit officiel OpenAI ou MEXC. Déconnecter
+ChatGPT supprime ses jetons locaux ; révocation distante non confirmée.
+
+## Développement
 
     npm ci
-    npm test
     npm run check
+    npm test
     npm start
     npm run dist:win
 
-La compilation Windows et le contrôle de l'application empaquetée
-se font sur un runner Windows GitHub Actions. Le test empaqueté exerce
-la fenêtre, le pont IPC, SQLite et DPAPI sans comptes ni requêtes privées.
-
-Les tests avec fixtures ne prouvent pas une connexion OAuth réelle,
-les droits d'un compte MEXC, les résultats d'une semaine ou une rentabilité.
-Ces vérifications nécessitent chaque compte et un essai sur le PC concerné.
-
-## Sources techniques
+## Documentation
 
 - https://developers.openai.com/cookbook/articles/sign-in-with-chatgpt
-- https://developers.openai.com/siwc/token-sharing-open-source/sign-in
-- https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference
-- https://www.mexc.com/mexc-api
-- https://www.mexc.com/announcements/article/futures-api-access-domain-update-17827791532974
-- https://www.electronjs.org/docs/latest/api/safe-storage
+- https://www.mexc.com/api-docs/spot-v3/spot-account-trade/new-order
+- https://www.mexc.com/api-docs/spot-v3/spot-account-trade/query-order
+- https://www.mexc.com/api-docs/spot-v3/spot-account-trade/query-api-key-info
+- https://www.mexc.com/api-docs/futures/account-and-trading-endpoints/place-order
+- https://www.mexc.com/api-docs/futures/account-and-trading-endpoints/get-open-positions
+- https://www.mexc.com/api-docs/futures/account-and-trading-endpoints/get-fee-details
+- https://www.mexc.com/api-docs/futures/integration-guide
 
-Licence MIT. Les dépendances conservent leurs propres licences.
+Licence MIT ; les dépendances conservent leurs licences respectives.

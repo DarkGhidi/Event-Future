@@ -1,0 +1,130 @@
+name: Maxibot 2.0 Live Windows
+on:
+  push:
+    branches: ['maxibot/windows-v2.1.0']
+    paths: ['maxibot-2/**', '.github/workflows/maxibot-live-windows.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: maxibot-live-windows-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      actions: write
+    defaults:
+      run:
+        working-directory: maxibot-2
+    steps:
+      - name: Cancel obsolete Maxibot builds
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const {data} = await github.rest.actions.listWorkflowRunsForRepo({...context.repo,branch:'maxibot/windows-v2.1.0',per_page:30});
+            for (const run of data.workflow_runs) {
+              if (run.id === context.runId || run.name !== 'Maxibot 2.0 Live Windows' || run.head_sha === context.sha || !['queued','pending','in_progress'].includes(run.status)) continue;
+              try { await github.rest.actions.cancelWorkflowRun({...context.repo,run_id:run.id}); }
+              catch (e) { if (e.status !== 409) throw e; }
+            }
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: maxibot-2/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npm run check
+      - run: npm test
+      - run: npm run dist:win
+      - name: Verify packaged application
+        timeout-minutes: 3
+        shell: pwsh
+        run: |
+          $process = Start-Process -FilePath '.\release\win-unpacked\Maxibot 2.0.exe' -ArgumentList '--smoke-test' -Wait -PassThru -RedirectStandardOutput smoke-stdout.txt -RedirectStandardError smoke-stderr.txt
+          Get-Content smoke-stage.txt,smoke-stdout.txt,smoke-stderr.txt -ErrorAction SilentlyContinue
+          Get-Content smoke-result.json -ErrorAction SilentlyContinue
+          if ($process.ExitCode -ne 0) { throw "Packaged smoke failed: $($process.ExitCode)" }
+          $result = Get-Content smoke-result.json -Raw | ConvertFrom-Json
+          if (!$result.ok -or !$result.storage -or $result.heading -ne 'Maxibot 2.0') { throw 'Invalid smoke result' }
+          Get-Content smoke-result.json
+      - name: Upload packaged verification
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: maxibot-verification
+          path: maxibot-2/smoke-*
+      - name: Verify binaries and checksums
+        shell: pwsh
+        run: |
+          $names = @('Maxibot-Setup-2.1.0-x64.exe','Maxibot-Portable-2.1.0-x64.exe')
+          $sums = foreach ($name in $names) {
+            $file = Get-Item "release/$name"
+            if ($file.Length -lt 10000000) { throw "Incomplete executable: $name" }
+            "$((Get-FileHash $file.FullName -Algorithm SHA256).Hash.ToLower())  $name"
+          }
+          $sums | Set-Content release/SHA256SUMS.txt -Encoding utf8
+      - uses: actions/upload-artifact@v4
+        with:
+          name: maxibot-windows
+          if-no-files-found: error
+          path: |
+            maxibot-2/release/Maxibot-Setup-2.1.0-x64.exe
+            maxibot-2/release/Maxibot-Portable-2.1.0-x64.exe
+            maxibot-2/release/SHA256SUMS.txt
+  release:
+    needs: windows
+    if: github.ref == 'refs/heads/maxibot/windows-v2.1.0'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify current branch head
+        id: current
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const {data} = await github.rest.repos.getBranch({...context.repo,branch:'maxibot/windows-v2.1.0'});
+            core.setOutput('publish', String(data.commit.sha === context.sha));
+      - uses: actions/download-artifact@v4
+        if: steps.current.outputs.publish == 'true'
+        with:
+          name: maxibot-windows
+          path: maxibot-dist
+      - name: Stage prerelease
+        id: staged
+        if: steps.current.outputs.publish == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: maxibot-v2.1.0-beta.1
+          target_commitish: ${{ github.sha }}
+          name: Maxibot 2.0 — Windows v2.1.0 bêta 1
+          draft: true
+          prerelease: true
+          make_latest: false
+          body_path: maxibot-2/docs/RELEASE_NOTES.md
+          fail_on_unmatched_files: true
+          files: |
+            maxibot-dist/Maxibot-Setup-2.1.0-x64.exe
+            maxibot-dist/Maxibot-Portable-2.1.0-x64.exe
+            maxibot-dist/SHA256SUMS.txt
+      - name: Verify and publish
+        if: steps.current.outputs.publish == 'true'
+        uses: actions/github-script@v7
+        env:
+          RELEASE_ID: ${{ steps.staged.outputs.id }}
+        with:
+          script: |
+            const owner = context.repo.owner, repo = context.repo.repo;
+            const { data: release } = await github.rest.repos.getRelease({owner,repo,release_id:Number(process.env.RELEASE_ID)});
+            if (release.target_commitish !== context.sha) throw new Error('Release commit mismatch');
+            const { data: assets } = await github.rest.repos.listReleaseAssets({owner,repo,release_id:release.id});
+            for (const name of ['Maxibot-Setup-2.1.0-x64.exe','Maxibot-Portable-2.1.0-x64.exe','SHA256SUMS.txt']) {
+              const asset = assets.find(a => a.name === name);
+              if (!asset || asset.state !== 'uploaded' || asset.size <= 0 || !asset.digest?.startsWith('sha256:')) throw new Error('Missing or invalid asset: '+name);
+            }
+            await github.rest.repos.updateRelease({owner,repo,release_id:release.id,draft:false,prerelease:true,make_latest:'false'});

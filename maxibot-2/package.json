@@ -1,15 +1,15 @@
 {
   "name": "maxibot-2-desktop",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "private": true,
-  "description": "Simulation crypto locale avec connexion officielle ChatGPT et MEXC",
+  "description": "Maxibot autonome GPT/MEXC, observation puis ordres r\u00e9els",
   "author": "Maxibot Contributors",
   "license": "MIT",
   "type": "module",
   "main": "desktop/bootstrap.cjs",
   "scripts": {
     "start": "electron .",
-    "test": "node --test tests/engine.test.mjs tests/cli.test.mjs tests/desktop.test.mjs",
+    "test": "node --test tests/engine.test.mjs tests/cli.test.mjs tests/desktop.test.mjs tests/live.test.mjs",
     "check": "node scripts/check.mjs",
     "dist:win": "electron-builder --win nsis portable --x64 --publish never"
   },
@@ -39,7 +39,8 @@
       "docs/**",
       "README.md",
       "LICENSE",
-      "package.json"
+      "package.json",
+      "live/**"
     ],
     "win": {
       "target": [
@@ -49,7 +50,7 @@
       "signAndEditExecutable": false
     },
     "nsis": {
-      "artifactName": "Maxibot-Setup-2.0.0-x64.exe",
+      "artifactName": "Maxibot-Setup-2.1.0-x64.exe",
       "oneClick": false,
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,
@@ -61,7 +62,7 @@
       "language": "1036"
     },
     "portable": {
-      "artifactName": "Maxibot-Portable-2.0.0-x64.exe"
+      "artifactName": "Maxibot-Portable-2.1.0-x64.exe"
     }
   }
 }

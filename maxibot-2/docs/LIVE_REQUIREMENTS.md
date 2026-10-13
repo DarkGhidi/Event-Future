@@ -1,7 +1,8 @@
 # Maxibot 2.0 — exigences du mode réel
 
-Décisions de Max, 13 octobre 2026. Fonctions à développer ; elles ne sont
-pas actives dans la préversion Windows publiée.
+Décisions de Max, 13 octobre 2026. Le moteur, le budget partagé et ON/OFF sont implémentés dans le code
+de la version 2.1.0 bêta. Les essais ne font pas intervenir de fonds réels.
+Le connecteur direct CopyFOMO reste à développer.
 
 ## Commande utilisateur : un bot, un montant, ON/OFF
 
@@ -87,7 +88,8 @@ Les allocations des différentes activités sont décidées par le bot.
 
 Vérifier marge/liquidation, droits API, exécutions partielles, frais,
 réconciliation après reconnexion et protections de sortie de l'exchange.
-La version publiée ne contient aucun endpoint d'envoi d'ordre réel.
+La version 2.1.0 utilise les endpoints officiels d’envoi d’ordre.
+Le contrôle avec les comptes de chaque utilisateur reste nécessaire.
 
 ## Sources
 

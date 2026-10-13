@@ -8,9 +8,8 @@ contextBridge.exposeInMainWorld('maxibot', {
   connectMexc: keys => invoke('mexc-connect', keys),
   disconnectMexc: () => invoke('mexc-disconnect'),
   start: settings => invoke('start', settings),
-  pause: value => invoke('pause', value),
   stop: () => invoke('stop'),
-  newRun: () => invoke('new-run'),
+  connectCopySource: () => invoke('copy-source'),
   openGuide: guide => invoke('open-guide', guide),
   exportReport: () => invoke('export'),
   onUpdate: handler => { const fn = () => handler(); ipcRenderer.on('maxibot:update',fn); return () => ipcRenderer.removeListener('maxibot:update',fn); }

@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-for(const root of ['desktop','core','ui','scripts','tests'])for(const name of readdirSync(root)){
+for(const root of ['desktop','core','live','ui','scripts','tests'])for(const name of readdirSync(root)){
   if(!/\.(mjs|cjs|js)$/.test(name))continue;
   const r=spawnSync(process.execPath,['--check',join(root,name)],{encoding:'utf8'});
   if(r.status!==0){console.error(r.stderr);process.exit(1);}
