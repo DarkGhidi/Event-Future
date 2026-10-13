@@ -60,7 +60,7 @@ jobs:
       - name: Verify binaries and checksums
         shell: pwsh
         run: |
-          $names = @('Maxibot-Setup-2.1.4-x64.exe','Maxibot-Portable-2.1.4-x64.exe')
+          $names = @('Maxibot-Setup-2.1.5-x64.exe','Maxibot-Portable-2.1.5-x64.exe')
           $sums = foreach ($name in $names) {
             $file = Get-Item "release/$name"
             if ($file.Length -lt 10000000) { throw "Incomplete executable: $name" }
@@ -72,8 +72,8 @@ jobs:
           name: maxibot-windows
           if-no-files-found: error
           path: |
-            maxibot-2/release/Maxibot-Setup-2.1.4-x64.exe
-            maxibot-2/release/Maxibot-Portable-2.1.4-x64.exe
+            maxibot-2/release/Maxibot-Setup-2.1.5-x64.exe
+            maxibot-2/release/Maxibot-Portable-2.1.5-x64.exe
             maxibot-2/release/SHA256SUMS.txt
   release:
     needs: windows
@@ -100,17 +100,17 @@ jobs:
         if: steps.current.outputs.publish == 'true'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: maxibot-v2.1.4-beta.1
+          tag_name: maxibot-v2.1.5-beta.1
           target_commitish: ${{ github.sha }}
-          name: Maxibot 2.0 — Windows v2.1.4 bêta 1
+          name: Maxibot 2.0 — Windows v2.1.5 bêta 1
           draft: true
           prerelease: true
           make_latest: false
           body_path: maxibot-2/docs/RELEASE_NOTES.md
           fail_on_unmatched_files: true
           files: |
-            maxibot-dist/Maxibot-Setup-2.1.4-x64.exe
-            maxibot-dist/Maxibot-Portable-2.1.4-x64.exe
+            maxibot-dist/Maxibot-Setup-2.1.5-x64.exe
+            maxibot-dist/Maxibot-Portable-2.1.5-x64.exe
             maxibot-dist/SHA256SUMS.txt
       - name: Verify and publish
         if: steps.current.outputs.publish == 'true'
@@ -123,7 +123,7 @@ jobs:
             const { data: release } = await github.rest.repos.getRelease({owner,repo,release_id:Number(process.env.RELEASE_ID)});
             if (release.target_commitish !== context.sha) throw new Error('Release commit mismatch');
             const { data: assets } = await github.rest.repos.listReleaseAssets({owner,repo,release_id:release.id});
-            for (const name of ['Maxibot-Setup-2.1.4-x64.exe','Maxibot-Portable-2.1.4-x64.exe','SHA256SUMS.txt']) {
+            for (const name of ['Maxibot-Setup-2.1.5-x64.exe','Maxibot-Portable-2.1.5-x64.exe','SHA256SUMS.txt']) {
               const asset = assets.find(a => a.name === name);
               if (!asset || asset.state !== 'uploaded' || asset.size <= 0 || !asset.digest?.startsWith('sha256:')) throw new Error('Missing or invalid asset: '+name);
             }

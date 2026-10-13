@@ -107,7 +107,7 @@ try {
   handle('export',async()=>{
     if(!runner.state)throw new Error('NO_SIMULATION');
     const out=await dialog.showSaveDialog(win,{defaultPath:'Maxibot 2.0-Rapport.json',filters:[{name:'Rapport JSON',extensions:['json']}]});
-    if(!out.canceled&&out.filePath)writeFileSync(out.filePath,JSON.stringify(runner.state,null,2));return !out.canceled;
+    if(!out.canceled&&out.filePath)writeFileSync(out.filePath,JSON.stringify({appVersion:app.getVersion(),...runner.state},null,2));return !out.canceled;
   });
   win=new BrowserWindow({width:1440,height:960,minWidth:1000,minHeight:720,show:!smoke,backgroundColor:'#07100f',title:'Maxibot 2.0',webPreferences:{preload:join(base,'desktop','preload.cjs'),contextIsolation:true,nodeIntegration:false,sandbox:true,webSecurity:true}});
   win.removeMenu();

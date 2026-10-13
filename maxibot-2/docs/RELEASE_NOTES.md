@@ -1,3 +1,17 @@
+# Maxibot 2.0 — Windows v2.1.5 bêta 1
+
+Corrige le diagnostic GPT HTTP 400 : Maxibot relève désormais les réponses
+`detail` en catégories sûres (schéma, capacité, modèle, accès) et inclut
+l’identifiant de requête OpenAI. Le texte de réponse brut reste exclu.
+L’export JSON indique maintenant la version exacte installée.
+
+Validation locale ciblée du diagnostic et vérification syntaxique réussies.
+Aucun ordre réel utilisé pour cette validation.
+
+Installateur et portable x64, non signés ; empreintes dans SHA256SUMS.txt.
+
+---
+
 # Maxibot 2.0 — Windows v2.1.4 bêta 1
 
 Le journal ajoute, après un refus HTTP 400 de GPT, les identifiants sûrs

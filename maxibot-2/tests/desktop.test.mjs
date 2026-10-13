@@ -71,6 +71,8 @@ test('HTTP 400 GPT expose code, type et champ autorisés sans le message brut',a
   await assert.rejects(make({code:'invalid_json_schema',type:'invalid_request_error',param:'text.format.schema'}).response({}),e=>e.message==='CHATGPT_REQUEST_SCHEMA_CODE_INVALID_JSON_SCHEMA_TYPE_INVALID_REQUEST_ERROR_PARAM_TEXT_FORMAT_SCHEMA'&&!e.message.includes('private'));
   await assert.rejects(make({code:'unsupported_parameter'}).response({}),/CHATGPT_REQUEST_PARAMETER_CODE_UNSUPPORTED_PARAMETER/);
   await assert.rejects(make({code:'unlisted-sensitive-detail',param:'private@example.com'}).response({}),e=>e.message==='CHATGPT_HTTP_400_CODE_UNLISTED_SENSITIVE_DETAIL'&&!e.message.includes('private'));
+  const detailAuth=new ChatGPT(vault,()=>{},async()=>new Response(JSON.stringify({detail:'unsupported structured output for this request'}),{status:400,headers:{'x-request-id':'req_abc123'}}));
+  await assert.rejects(detailAuth.response({}),e=>e.message==='CHATGPT_HTTP_400_DETAIL_SCHEMA_REQUEST_REQ_ABC123');
 });
 const quote = () => ({id:'spot:BTC',asset:'BTC',market:'spot',symbol:'BTCUSDT',bid:100,ask:100.05,spreadBps:5,observedAt:Date.now(),candles:[],features:{return5m:.01},fundingHistory:[]});
 const decision = body => ({status:'completed',output:[{content:[{type:'output_text',text:JSON.stringify({decisions:JSON.parse(body.input).map(c=>({id:c.id,action:'LONG',confidence:.9,reason:'Fixture vérifiée'}))})}]}],usage:{total_tokens:100}});

@@ -24,8 +24,15 @@ async function responseError(r) {
     try {
       const raw = await r.text(), d = raw.length <= 8192 ? JSON.parse(raw) : null, e = d?.error;
       const code = safeDiagnostic(e?.code), type = safeDiagnostic(e?.type), param = safeDiagnostic(e?.param);
+      const detail = typeof d?.detail === 'string' ? d.detail : '';
+      const detailCode = /schema|structured.?output|text\.format/i.test(detail) ? 'DETAIL_SCHEMA'
+        : /unsupported|not supported|capability/i.test(detail) ? 'DETAIL_UNSUPPORTED'
+        : /model/i.test(detail) ? 'DETAIL_MODEL'
+        : /plan|admission|permission|eligib/i.test(detail) ? 'DETAIL_ACCESS'
+        : detail ? 'DETAIL_OTHER' : null;
+      const requestId = safeDiagnostic(r.headers.get('x-request-id'));
       const base = typeof e?.code === 'string' ? BAD_REQUEST_CODES.get(e.code) || 'CHATGPT_HTTP_400' : 'CHATGPT_HTTP_400';
-      return [base, code && 'CODE_' + code, type && 'TYPE_' + type, param && 'PARAM_' + param].filter(Boolean).join('_');
+      return [base, code && 'CODE_' + code, type && 'TYPE_' + type, param && 'PARAM_' + param, detailCode, requestId && 'REQUEST_' + requestId].filter(Boolean).join('_');
     } catch {}
   }
   return 'CHATGPT_HTTP_' + r.status;
