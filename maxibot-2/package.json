@@ -1,6 +1,6 @@
 {
   "name": "maxibot-2-desktop",
-  "version": "2.1.1",
+  "version": "2.1.2",
   "private": true,
   "description": "Maxibot autonome GPT/MEXC, observation puis ordres r\u00e9els",
   "author": "Maxibot Contributors",
@@ -9,7 +9,7 @@
   "main": "desktop/bootstrap.cjs",
   "scripts": {
     "start": "electron .",
-    "test": "node --test tests/engine.test.mjs tests/cli.test.mjs tests/desktop.test.mjs tests/live.test.mjs",
+    "test": "node --test tests/engine.test.mjs tests/cli.test.mjs tests/desktop.test.mjs tests/live.test.mjs tests/fomoapi.test.mjs",
     "check": "node scripts/check.mjs",
     "dist:win": "electron-builder --win nsis portable --x64 --publish never"
   },
@@ -50,7 +50,7 @@
       "signAndEditExecutable": false
     },
     "nsis": {
-      "artifactName": "Maxibot-Setup-2.1.1-x64.exe",
+      "artifactName": "Maxibot-Setup-2.1.2-x64.exe",
       "oneClick": false,
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,
@@ -62,7 +62,7 @@
       "language": "1036"
     },
     "portable": {
-      "artifactName": "Maxibot-Portable-2.1.1-x64.exe"
+      "artifactName": "Maxibot-Portable-2.1.2-x64.exe"
     }
   }
 }

@@ -4,11 +4,12 @@ import { Store } from '../core/io.mjs';
 import { freshPortfolio,available,reserved,log,reserveOrder,rejectOrder,settleOrder,settleFuturesHistory,markPortfolio } from './portfolio.mjs';
 import { planRequest,parsePlan } from './planner.mjs';
 import { finite,ApiError,floorStep } from './mexc.mjs';
+import { matchMexcToken } from './fomoapi.mjs';
 const DAY=86400000,TRAINING=7*DAY;
 export class AutonomousRunner {
   constructor(dir,config,chatgpt,broker,notify=()=>{},options={}){
     this.config=config;this.chatgpt=chatgpt;this.broker=broker;this.notify=notify;this.clock=options.clock??Date.now;this.trainingRequired=options.trainingRequired??TRAINING;
-    this.store=new Store(join(dir,'execution.sqlite'));this.state=this.store.load();this.busy=false;this.timer=null;this.shutdown=false;this.generation=0;this.lastError=null;this.universe=[];this.universeAt=0;this.sourceFile=null;
+    this.store=new Store(join(dir,'execution.sqlite'));this.state=this.store.load();this.busy=false;this.timer=null;this.shutdown=false;this.generation=0;this.lastError=null;this.universe=[];this.universeAt=0;this.sourceFile=null;this.fomo=options.fomo??null;this.copyEntrySince=Infinity;
     if(this.state){this.state.enabled=false;this.save();if(this.hasExposure)this.timer=setTimeout(()=>this.cycle(),100);}
   }
   get hasExposure(){return !!this.state&&(this.state.portfolio.positions.length>0||this.state.portfolio.orders.some(o=>!o.settled));}
@@ -29,7 +30,7 @@ export class AutonomousRunner {
     if(this.state.portfolio.mode==='live'){const a=await this.broker.accounts();if(available(this.state.portfolio)+capital-this.state.portfolio.allocated>a.spot+a.futures+.01)throw new Error('MEXC_FUNDS_INSUFFICIENT');}
     if(this.generation!==generation||this.shutdown)return this.snapshot();
     if(capital!==this.state.portfolio.allocated){this.state.portfolio.cash+=capital-this.state.portfolio.allocated;this.state.portfolio.allocated=capital;}
-    this.state.model=models.find(m=>m.id===this.state.model)?.id??models[0].id;this.state.enabled=true;this.shutdown=false;this.generation++;this.save();clearTimeout(this.timer);this.timer=setTimeout(()=>this.cycle(),0);return this.snapshot();
+    this.state.model=models.find(m=>m.id===this.state.model)?.id??models[0].id;this.copyEntrySince=this.clock();this.state.enabled=true;this.shutdown=false;this.generation++;this.save();clearTimeout(this.timer);this.timer=setTimeout(()=>this.cycle(),0);return this.snapshot();
   }
   off(){this.generation++;if(this.state){this.state.enabled=false;this.save();}return this.snapshot();}
   stop(){if(this.closed)return;this.off();this.shutdown=true;clearTimeout(this.timer);this.timer=null;}
@@ -95,16 +96,17 @@ export class AutonomousRunner {
     markPortfolio(s,quotes);this.save();
     if(s.drawdown>=this.config.maxDrawdownPct){this.state.enabled=false;for(const p of [...s.positions])await this.closePosition(p,'drawdown');this.save();}
     const signals=this.readCopySignals();for(const signal of signals.filter(x=>x.action==='CLOSE')){for(const p of [...s.positions].filter(p=>p.plan.leader===signal.leader&&p.plan.symbol===signal.symbol&&p.plan.market===signal.market))await this.closePosition(p,'leader_exit');}
+    const fomoSignals=await this.readFomoSignals();
     if(!this.state.enabled||s.reconcileFault||s.orders.some(o=>!o.settled))return;
     if(!this.universe.length||this.clock()-this.universeAt>300000){this.universe=await this.broker.discovery(this.access);this.universeAt=this.clock();}
     const candidates=[];const choices=this.universe.slice(0,8); // Batch size, not a limit on open positions.
     for(const item of choices){try{const q=await this.broker.quote(item);quotes[q.id]=q;if(!s.positions.some(p=>p.plan.symbol===q.symbol&&p.plan.market===q.market))candidates.push({id:'auto:'+q.id,q,source:q.features.volumeRatio>=2?'momentum':'autonomous'});}catch{log(s,'skip',item.asset+' · données indisponibles');}}
-    for(const signal of signals.filter(x=>x.action!=='CLOSE')){const item=this.universe.find(i=>i.market===signal.market&&i.symbol===signal.symbol);if(!item)continue;try{const q=await this.broker.quote(item);quotes[q.id]=q;if(!s.positions.some(p=>p.plan.symbol===q.symbol&&p.plan.market===q.market))candidates.push({id:'copy:'+signal.id,q,source:'copy',signal:{leader:signal.leader,action:signal.action}});}catch{log(s,'skip','Signal de copie sans cotation exploitable');}}
+    for(const signal of [...signals.filter(x=>x.action!=='CLOSE'),...fomoSignals]){const item=this.universe.find(i=>i.market===signal.market&&i.symbol===signal.symbol);if(!item)continue;try{const q=await this.broker.quote(item);quotes[q.id]=q;if(!s.positions.some(p=>p.plan.symbol===q.symbol&&p.plan.market===q.market))candidates.push({id:'copy:'+signal.id,q,source:signal.fomo?'fomoapi':'copy',fomoEvent:signal.fomo?signal:null,signal:{leader:signal.leader,action:signal.action,...(signal.fomo?{trader:signal.trader,chainId:signal.chainId,contract:signal.contract,observedAt:signal.time,sizeUsd:signal.usdValue,leaderStats:this.fomo.stats(signal.leader),statsUpdatedAt:this.fomo.refreshAt}: {})}});}catch{log(s,'skip','Signal de copie sans cotation exploitable');}}
     for(const p of s.positions){const q=quotes[p.plan.market+':'+p.plan.asset];if(q)candidates.push({id:'position:'+p.id,q,source:p.plan.source,position:p});}
     if(!choices.length||!Object.keys(quotes).length){this.state.training.lastHealthy=null;this.save();return;}
     if(s.mode==='paper'){const now=this.clock(),last=this.state.training.lastHealthy;if(last&&now-last<=120000)this.state.training.coveredMs+=Math.max(0,now-last);this.state.training.lastHealthy=now;
       if(this.state.training.coveredMs>=this.trainingRequired){for(const p of [...s.positions])await this.closePosition(p,'training_end');if(s.positions.length||s.orders.some(o=>!o.settled))return;const a=await this.broker.accounts();if(a.spot+a.futures<s.allocated){this.state.enabled=false;throw new Error('MEXC_FUNDS_INSUFFICIENT');}this.state.trainingArchive=structuredClone(s);this.state.portfolio=freshPortfolio(s.allocated,'live');log(this.state.portfolio,'mode','Sept jours d’observation terminés : passage au réel avec le capital initial, sans gains fictifs.');this.save();return;}}
-    const generation=this.generation;if(this.clock()-this.state.lastDecision<this.config.decisionSeconds*1000&&!candidates.some(c=>c.source==='copy'))return;
+    const generation=this.generation;if(this.clock()-this.state.lastDecision<this.config.decisionSeconds*1000&&!candidates.some(c=>c.signal&&!c.position))return;
     this.state.lastDecision=this.clock();const day=new Date(this.clock()).toISOString().slice(0,10);if(this.state.api.day!==day)this.state.api={day,calls:0,tokens:0};
     if(this.state.api.calls>=this.config.maxCallsPerDay||this.state.api.tokens+this.config.callTokenReserve>this.config.maxTokensPerDay){log(s,'skip','Budget de requêtes GPT du jour atteint ; les sorties continuent.');this.save();return;}
     const a=s.mode==='paper'?{spot:available(s),futures:available(s)}:await this.broker.accounts();
@@ -114,11 +116,13 @@ export class AutonomousRunner {
     for(const d of result.decisions){const c=candidates.find(c=>c.id===d.id);log(s,'decision',c.q.asset+' · '+d.action+' · '+d.reason);if(d.action==='CLOSE'&&c.position){await this.closePosition(c.position,'GPT');continue;}if(!['LONG','SHORT'].includes(d.action))continue;
       if(!this.state.enabled||this.generation!==generation||s.orders.some(o=>!o.settled)||s.reconcileFault)break;
       try{
+        if(c.fomoEvent&&!this.fomo?.validEntry(c.fomoEvent))throw new Error('FOMO_SIGNAL_EXPIRED');
         const q=await this.broker.quote({asset:c.q.asset,market:c.q.market,meta:c.q.meta});quotes[q.id]=q;const account=s.mode==='paper'?a:await this.broker.accounts();
         if(d.amountUSDT>available(s)||d.amountUSDT>account[q.market])throw new Error('CAPITAL_RESERVED');
         // Direction and absolute exits must remain coherent after GPT latency.
         const entry=d.action==='LONG'?q.ask:q.bid;if(d.action==='LONG'?!(d.stop<entry&&d.take>entry):!(d.stop>entry&&d.take<entry))throw new Error('QUOTE_CHANGED');
         const plan=await this.broker.prepare(q,{...d,source:c.source},d.amountUSDT);plan.referencePrice=entry;if(c.signal)plan.leader=c.signal.leader;
+        if(c.fomoEvent){if(!this.fomo?.validEntry(c.fomoEvent))throw new Error('FOMO_SIGNAL_EXPIRED');plan.fomoIdentity=c.fomoEvent.identity;plan.copyEventTime=c.fomoEvent.time;plan.copyTradeId=c.fomoEvent.tradeId;}
         if(!this.state.enabled||this.generation!==generation)break;
         const o=reserveOrder(s,plan);await this.submit(o,generation);await this.reconcile();
       }catch(e){log(s,'skip',c.q.symbol+' · '+(/^[A-Z0-9_]+$/.test(e.message)?e.message:'ORDER_PREPARATION_FAILED'));}
@@ -137,10 +141,28 @@ export class AutonomousRunner {
       this.state.processed=this.state.processed.slice(-10000);this.save();return out;
     }catch{this.lastError='COPY_FEED_UNAVAILABLE';return [];}
   }
+  async readFomoSignals(){
+    if(!this.fomo)return [];
+    const s=this.state.portfolio,signals=this.fomo.take().filter(x=>!this.state.processed.includes(x.id));
+    for(const x of signals)this.state.processed.push(x.id);this.state.processed=this.state.processed.slice(-10000);this.save();
+    // A leader exit remains usable while OFF and without metadata/GPT access.
+    for(const x of signals.filter(x=>x.action==='CLOSE'))for(const p of [...s.positions].filter(p=>p.plan.source==='fomoapi'&&p.plan.leader===x.leader&&p.plan.fomoIdentity===x.identity&&x.time>=p.plan.copyEventTime))await this.closePosition(p,'FOMOAPI leader_exit');
+    if(!this.state.enabled)return [];
+    this.fomo.refreshStats().catch(()=>{});
+    const buys=signals.filter(x=>x.action==='LONG'&&x.time>=this.copyEntrySince&&this.fomo.validEntry(x));if(!buys.length)return [];
+    try{
+      if(!this.universe.length||this.clock()-this.universeAt>300000){this.universe=await this.broker.discovery(this.access);this.universeAt=this.clock();}
+      const currencies=await this.broker.currencyInfo(),out=[];this.fomo.mappingError=null;
+      for(const x of buys){const matches=matchMexcToken(x,currencies,this.universe);if(!matches.length){this.fomo.unlisted++;log(s,'skip','FOMOAPI · token sans correspondance MEXC vérifiable');continue;}this.fomo.matched++;
+        for(const item of matches)out.push({...x,id:x.id+':'+item.market,market:item.market,symbol:item.symbol,fomo:true});
+      }return out;
+    }catch(e){this.fomo.mappingError=/^[A-Z0-9_]+$/.test(e.message)?e.message:'FOMO_MAPPING_UNAVAILABLE';log(s,'skip',this.fomo.mappingError);return [];}
+  }
   snapshot(){
-    const s=this.state?.portfolio;if(!s)return {status:'not_started',mode:'paper',active:false,enabled:false,starting:this.starting===true,positions:[],events:[],history:[],trades:[],selected:null,lanes:[],copyConnected:false,progress:0};
+    const fomo=this.fomo?.snapshot()??{configured:false,connected:false,status:'disconnected'};
+    const s=this.state?.portfolio;if(!s)return {status:'not_started',mode:'paper',active:false,enabled:false,starting:this.starting===true,positions:[],events:[],history:[],trades:[],selected:null,lanes:[],copyConnected:fomo.connected,externalCopyConfigured:!!this.sourceFile,fomo,progress:0};
     const eq=s.cash+s.positions.reduce((n,p)=>n+(p.plan.market==='spot'?p.quantity*p.mark:p.principal+p.unrealized),0),wins=s.closed.filter(t=>t.net>0).length;
-    return {status:this.state.enabled?'running':'off',active:this.active,enabled:this.state.enabled,starting:this.starting===true,busy:this.busy,paused:!this.state.enabled,mode:s.mode,liveEnabled:s.mode==='live',startedAt:s.startedAt,updatedAt:s.updatedAt,phase:s.mode==='paper'?'observation':'live',progress:Math.min(1,this.state.training.coveredMs/this.trainingRequired),lastError:this.lastError||s.reconcileFault,model:this.state.model,allocated:s.allocated,free:available(s),reserved:reserved(s),pending:s.orders.filter(o=>!o.settled).length,copyConnected:!!this.sourceFile,
+    return {status:this.state.enabled?'running':'off',active:this.active,enabled:this.state.enabled,starting:this.starting===true,busy:this.busy,paused:!this.state.enabled,mode:s.mode,liveEnabled:s.mode==='live',startedAt:s.startedAt,updatedAt:s.updatedAt,phase:s.mode==='paper'?'observation':'live',progress:Math.min(1,this.state.training.coveredMs/this.trainingRequired),lastError:this.lastError||s.reconcileFault,model:this.state.model,allocated:s.allocated,free:available(s),reserved:reserved(s),pending:s.orders.filter(o=>!o.settled).length,copyConnected:fomo.connected||!!this.sourceFile,externalCopyConfigured:!!this.sourceFile,fomo,
       selected:{id:'bot',initial:s.allocated,equity:eq,pnl:eq-s.allocated,pnlPct:(eq/s.allocated-1)*100,drawdown:s.drawdown,closed:s.closed.length,wins,losses:s.closed.length-wins,winRate:s.closed.length?wins/s.closed.length:0},
       positions:s.positions.map(p=>({id:p.id,asset:p.plan.asset,market:p.plan.market,side:p.plan.side,entry:p.entry,mark:p.mark,pnl:p.unrealized,stop:p.plan.stop,take:p.plan.take,leverage:p.plan.leverage,source:p.plan.source,margin:p.principal,protection:s.mode==='paper'?'Observation · sorties simulées':p.dust?'Reste sous le minimum MEXC':p.plan.market==='spot'?'PC allumé nécessaire':p.protected?'MEXC · isolée':'Vérification MEXC'})),trades:s.closed.slice(-50),history:s.history,events:s.events.slice(0,60),lanes:[],api:{calls:this.state.api.calls,reservedTokens:this.state.api.tokens,maxCalls:this.config.maxCallsPerDay},monitoring:this.hasExposure,trainingDecisions:this.state.training.decisions};
   }

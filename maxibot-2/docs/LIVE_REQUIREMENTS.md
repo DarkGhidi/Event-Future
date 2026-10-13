@@ -1,8 +1,8 @@
 # Maxibot 2.0 — exigences du mode réel
 
 Décisions de Max, 13 octobre 2026. Le moteur, le budget partagé et ON/OFF sont implémentés dans le code
-de la version 2.1.1 bêta. Les essais ne font pas intervenir de fonds réels.
-Le connecteur direct CopyFOMO reste à développer.
+de la version 2.1.2 bêta. Les essais ne font pas intervenir de fonds réels.
+FOMOAPI est intégré comme fournisseur de données. Le connecteur ne se connecte pas au compte de trading CopyFOMO.
 
 ## Commande utilisateur : un bot, un montant, ON/OFF
 
@@ -88,7 +88,7 @@ Les allocations des différentes activités sont décidées par le bot.
 
 Vérifier marge/liquidation, droits API, exécutions partielles, frais,
 réconciliation après reconnexion et protections de sortie de l'exchange.
-La version 2.1.1 utilise les endpoints officiels d’envoi d’ordre.
+La version 2.1.2 utilise les endpoints officiels d’envoi d’ordre.
 Le contrôle avec les comptes de chaque utilisateur reste nécessaire.
 
 ## Sources

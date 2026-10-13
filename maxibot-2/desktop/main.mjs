@@ -8,6 +8,7 @@ import { Vault } from './vault.mjs';
 import { ChatGPT } from './chatgpt.mjs';
 import { AutonomousRunner } from '../live/runner.mjs';
 import { LiveMexc } from '../live/mexc.mjs';
+import { FomoApi,validFomoKey } from '../live/fomoapi.mjs';
 import { loadConfig } from '../core/io.mjs';
 
 const base=dirname(dirname(fileURLToPath(import.meta.url))), smoke=process.argv.includes('--smoke-test');
@@ -16,7 +17,7 @@ stage('module-loaded');
 if(smoke)app.setPath('userData',mkdtempSync(join(tmpdir(),'maxibot-smoke-')));
 app.setAppUserModelId('com.maxibot.desktop2');
 if(!app.requestSingleInstanceLock())app.quit();
-let win, vault, chatgpt, runner, modelList=[], blocker=null, quitting=false, waitingForQuit=false;
+let win, vault, chatgpt, runner, fomo=null, fomoConnecting=false, modelList=[], blocker=null, quitting=false, waitingForQuit=false;
 const notify = message => {
   if(message.notification&&Notification.isSupported())new Notification({title:'Maxibot 2.0',body:message.notification}).show();
   if(message&&!message.active)stopBlocker();else if(blocker===null)blocker=powerSaveBlocker.start('prevent-app-suspension');
@@ -25,7 +26,7 @@ const notify = message => {
 const startRunner = () => {
   let runId=vault.get('executionRunId');
   if(!runId){runId=randomUUID();vault.set('executionRunId',runId);}
-  runner=new AutonomousRunner(join(app.getPath('userData'),'execution',runId),loadConfig(join(base,'config.json')),chatgpt,new LiveMexc(()=>vault.get('mexc')),notify);runner.sourceFile=vault.get('copySource');
+  runner=new AutonomousRunner(join(app.getPath('userData'),'execution',runId),loadConfig(join(base,'config.json')),chatgpt,new LiveMexc(()=>vault.get('mexc')),notify,{fomo});runner.sourceFile=vault.get('copySource');
 };
 function validSender(e) {
   return !!win && e.sender===win.webContents && e.senderFrame===win.webContents.mainFrame &&
@@ -71,10 +72,11 @@ try {
     if((keys.futuresKey||keys.futuresSecret)&&(!keyValue(keys.futuresKey)||!keyValue(keys.futuresSecret)))throw new Error('MEXC_KEYS_INVALID');
     const clean={spotKey:keys.spotKey,spotSecret:keys.spotSecret,futuresKey:keys.futuresKey||'',futuresSecret:keys.futuresSecret||''};
     const result=await new LiveMexc(()=>clean).connectCheck();
-    if(runner.state?.uid&&runner.state.uid!==result.uid){if(runner.hasExposure)throw new Error('MEXC_ACCOUNT_CHANGED');runner.close();vault.set('executionRunId',randomUUID());vault.set('mexc',{...clean,...result});startRunner();}else{vault.set('mexc',{...clean,...result});runner.access=result;}return result;
+    if(runner.state?.uid&&runner.state.uid!==result.uid){if(runner.hasExposure)throw new Error('MEXC_ACCOUNT_CHANGED');runner.close();vault.set('executionRunId',randomUUID());vault.set('mexc',{...clean,...result});startRunner();}else{vault.set('mexc',{...clean,...result});runner.access=result;runner.broker.currencyCache=null;}if(fomo)fomo.mappingError=result.currencyRead?null:'MEXC_CURRENCY_READ_PERMISSION';return result;
   });
   handle('mexc-disconnect',()=>{if(runner.starting||runner.active)throw new Error('STOP_BEFORE_ACCOUNT_CHANGE');vault.set('mexc',null);return true;});
   handle('start',async settings=>{
+    if(fomoConnecting)throw new Error('FOMO_CONNECTING');
     if(!vault.get('mexc')?.verified)throw new Error('MEXC_KEYS_REQUIRED');
     const value=await runner.start(Number(settings.capital));
     if(blocker===null)blocker=powerSaveBlocker.start('prevent-app-suspension');return value;
@@ -84,7 +86,23 @@ try {
     const result=await dialog.showOpenDialog(win,{properties:['openFile'],filters:[{name:'Flux MEXC JSONL',extensions:['jsonl']}]});
     if(!result.canceled){vault.set('copySource',result.filePaths[0]);runner.sourceFile=result.filePaths[0];}return !result.canceled;
   });
-  const guides={mexc:'https://www.mexc.com/user/openapi',chatgpt:'https://chatgpt.com',github:'https://github.com/DarkGhidi/Event-Future/releases'};
+  handle('fomo-connect',async key=>{
+    if(fomoConnecting||runner.starting||runner.state?.enabled||runner.busy)throw new Error('STOP_BEFORE_ACCOUNT_CHANGE');
+    if(!validFomoKey(key))throw new Error('FOMO_KEY_INVALID');
+    fomoConnecting=true;const next=new FomoApi(key,{onState:()=>{if(win&&!win.isDestroyed())win.webContents.send('maxibot:update');}});
+    try{await next.connect();if(quitting)throw new Error('FOMO_DISCONNECTED');next.mappingError=vault.get('mexc')?.verified&&vault.get('mexc')?.currencyRead!==true?'MEXC_CURRENCY_READ_PERMISSION':null;vault.set('fomoapi',{key});fomo?.close();fomo=next;runner.fomo=fomo;return fomo.snapshot();}
+    catch(e){next.close();throw e;}finally{fomoConnecting=false;}
+  });
+  handle('fomo-disconnect',()=>{
+    if(fomoConnecting||runner.starting||runner.state?.enabled||runner.busy)throw new Error('STOP_BEFORE_ACCOUNT_CHANGE');
+    if(runner.state?.portfolio.positions.some(p=>p.plan.source==='fomoapi')||runner.state?.portfolio.orders.some(o=>!o.settled&&o.plan.source==='fomoapi'))throw new Error('FOMO_POSITIONS_ACTIVE');
+    vault.set('fomoapi',null);fomo?.close();fomo=null;runner.fomo=null;return true;
+  });
+  if(!smoke&&vault.get('fomoapi')?.key){
+    fomo=new FomoApi(vault.get('fomoapi').key,{onState:()=>{if(win&&!win.isDestroyed())win.webContents.send('maxibot:update');}});runner.fomo=fomo;
+    const saved=fomo;saved.connect().catch(()=>{});
+  }
+  const guides={mexc:'https://www.mexc.com/user/openapi',chatgpt:'https://chatgpt.com',fomo:'https://fomoapi.io/dashboard',github:'https://github.com/DarkGhidi/Event-Future/releases'};
   handle('open-guide',name=>{if(!Object.hasOwn(guides,name))throw new Error('GUIDE_INVALID');return shell.openExternal(guides[name]);});
   handle('export',async()=>{
     if(!runner.state)throw new Error('NO_SIMULATION');
@@ -101,13 +119,16 @@ try {
   powerMonitor.on('resume',()=>{if(runner.active&&!runner.busy){clearTimeout(runner.timer);runner.cycle();}});
   stage('window-created');await win.loadURL('maxibot://app/index.html');stage('window-loaded');
   if(smoke){
-    const result=await win.webContents.executeJavaScript("(async()=>{const r=await window.maxibot.state();return {bridge:!!window.maxibot,ok:r.ok,status:r.value?.dashboard.status,heading:document.querySelector('h1')?.textContent,forms:document.querySelectorAll('form').length}})()");
-    if(!result.bridge||!result.ok||result.status!=='not_started'||result.heading!=='Maxibot 2.0'||result.forms<2)throw new Error('SMOKE_FAILED');
+    const result=await win.webContents.executeJavaScript("(async()=>{const r=await window.maxibot.state();return {bridge:!!window.maxibot,ok:r.ok,status:r.value?.dashboard.status,heading:document.querySelector('h1')?.textContent,forms:document.querySelectorAll('form').length,fomoForm:document.getElementById('fomo-form')?.tagName==='FORM',fomoBridge:typeof window.maxibot.connectFomo==='function',fomoConfigured:r.value?.dashboard.fomo?.configured}})()");
+    if(typeof WebSocket!=='function')throw new Error('SMOKE_WEBSOCKET_UNAVAILABLE');
+    if(!result.bridge||!result.ok||result.status!=='not_started'||result.heading!=='Maxibot 2.0'||result.forms<3||!result.fomoForm||!result.fomoBridge||result.fomoConfigured!==false)throw new Error('SMOKE_FAILED');
     // Exercise packaged native SQLite and Windows DPAPI without accounts or Internet.
     vault.set('smokeFixture',{test:'non-secret'});if(vault.get('smokeFixture').test!=='non-secret')throw new Error('SMOKE_STORAGE_FAILED');
     writeFileSync(join(process.cwd(),'smoke-result.json'),JSON.stringify({...result,node:process.versions.node,electron:process.versions.electron,storage:true}));
     await new Promise(r=>setTimeout(r,250));await win.webContents.executeJavaScript("document.getElementById('demo').click()");await new Promise(r=>setTimeout(r,250));
     const screenshot=await win.webContents.capturePage();writeFileSync(join(process.cwd(),'smoke-preview.png'),screenshot.toPNG());
+    const rejected=await win.webContents.executeJavaScript("window.maxibot.connectFomo('bad')");if(rejected.ok||rejected.error!=='FOMO_KEY_INVALID')throw new Error('SMOKE_FOMO_VALIDATION_FAILED');
+    await win.webContents.executeJavaScript("document.getElementById('setup-open').click();document.getElementById('fomo-form').scrollIntoView()");await new Promise(r=>setTimeout(r,250));const setupImage=await win.webContents.capturePage();writeFileSync(join(process.cwd(),'smoke-fomo-setup.png'),setupImage.toPNG());
     runner.close();app.exit(0);
   }
 } catch(e) {
@@ -117,7 +138,7 @@ try {
 app.on('second-instance',()=>{if(win){if(win.isMinimized())win.restore();win.focus();}});
 app.on('window-all-closed',()=>app.quit());
 app.on('before-quit',e=>{
-  quitting=true;runner?.stop();chatgpt?.cancelSignIn?.();stopBlocker();
+  quitting=true;runner?.stop();fomo?.close();chatgpt?.cancelSignIn?.();stopBlocker();
   if(runner?.busy){e.preventDefault();if(!waitingForQuit){waitingForQuit=true;const t=setInterval(()=>{if(!runner.busy){clearInterval(t);app.quit();}},100);}return;}
   runner?.close();
 });

@@ -10,6 +10,8 @@ contextBridge.exposeInMainWorld('maxibot', {
   start: settings => invoke('start', settings),
   stop: () => invoke('stop'),
   connectCopySource: () => invoke('copy-source'),
+  connectFomo: key => invoke('fomo-connect', key),
+  disconnectFomo: () => invoke('fomo-disconnect'),
   openGuide: guide => invoke('open-guide', guide),
   exportReport: () => invoke('export'),
   onUpdate: handler => { const fn = () => handler(); ipcRenderer.on('maxibot:update',fn); return () => ipcRenderer.removeListener('maxibot:update',fn); }

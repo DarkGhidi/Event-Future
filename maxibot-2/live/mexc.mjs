@@ -34,9 +34,17 @@ export class LiveMexc extends Mexc {
   async connectCheck(){
     const k=this.credentials(),spotScopes=await this.keyInfo(k.spotKey);const account=await this.signed('spot','/api/v3/account');const uid=String((await this.signed('spot','/api/v3/uid')).uid);if(!/^\d+$/.test(uid))throw new ApiError('ACCOUNT_ID_UNVERIFIED',true);
     let futuresScopes=[],futuresRead=false;if(k.futuresKey){futuresScopes=k.futuresKey===k.spotKey?spotScopes:await this.keyInfo(k.futuresKey);await this.signed('futures','/api/v1/private/account/assets');const other=new LiveMexc(()=>({spotKey:k.futuresKey,spotSecret:k.futuresSecret}),this.fetcher);const otherUid=String((await other.signed('spot','/api/v3/uid')).uid);if(otherUid!==uid)throw new ApiError('ACCOUNT_MISMATCH',true);futuresRead=true;}
-    return {uid,verified:true,spotRead:true,spotCanTrade:account.canTrade===true&&spotScopes.includes('SPOT_DEAL_WRITE')&&spotScopes.includes('SPOT_DEAL_READ'),futuresRead,futuresCanTrade:futuresScopes.includes('CONTRACT_DEAL_WRITE')&&futuresScopes.includes('CONTRACT_DEAL_READ')};
+    return {uid,verified:true,spotRead:true,currencyRead:spotScopes.includes('SPOT_WITHDRAW_READ'),spotCanTrade:account.canTrade===true&&spotScopes.includes('SPOT_DEAL_WRITE')&&spotScopes.includes('SPOT_DEAL_READ'),futuresRead,futuresCanTrade:futuresScopes.includes('CONTRACT_DEAL_WRITE')&&futuresScopes.includes('CONTRACT_DEAL_READ')};
   }
   async spotBalances(){return (await this.signed('spot','/api/v3/account')).balances??[];}
+  async currencyInfo(){
+    if(this.currencyCache&&Date.now()-this.currencyCache.at<900000)return this.currencyCache.rows;
+    const scopes=await this.keyInfo(this.credentials()?.spotKey);
+    if(!scopes.includes('SPOT_WITHDRAW_READ'))throw new ApiError('CURRENCY_READ_PERMISSION',true);
+    const rows=await this.signed('spot','/api/v3/capital/config/getall');
+    if(!Array.isArray(rows))throw new ApiError('CURRENCY_DATA_INVALID');
+    this.currencyCache={at:Date.now(),rows};return rows;
+  }
   async accounts(){
     const keys=this.credentials(),spot=keys?.spotKey?await this.signed('spot','/api/v3/account'):null;
     const futures=keys?.futuresKey?await this.signed('futures','/api/v1/private/account/assets'):[];

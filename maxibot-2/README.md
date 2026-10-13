@@ -1,4 +1,4 @@
-# Maxibot 2.0 — Windows, version 2.1.1 bêta
+# Maxibot 2.0 — Windows, version 2.1.2 bêta
 
 Un montant global en USDT, un bouton ON/OFF. GPT choisit automatiquement
 les opportunités, les marchés disponibles, la direction, la taille,
@@ -8,8 +8,8 @@ profil ou de modèle GPT n'est demandé dans le fonctionnement normal.
 
 ## Installer
 
-Télécharger Maxibot-Setup-2.1.1-x64.exe ou Maxibot-Portable-2.1.1-x64.exe
-dans la release maxibot-v2.1.1-beta.1 de DarkGhidi/Event-Future.
+Télécharger Maxibot-Setup-2.1.2-x64.exe ou Maxibot-Portable-2.1.2-x64.exe
+dans la release maxibot-v2.1.2-beta.1 de DarkGhidi/Event-Future.
 Windows x64, dépendances incluses. Binaires non signés ; SHA256 joints.
 Les versions 2.0.0 sont des versions antérieures de simulation seulement.
 
@@ -82,8 +82,44 @@ entrées ; les sorties du leader ne touchent que ses propres positions copiées.
 Ce module ne vérifie pas l'identité on-chain d'un wallet : la source externe
 est responsable de la correspondance d'actif et de l'authenticité des données.
 
-Aucun connecteur direct CopyFOMO n'est fourni. Sans flux externe, le tableau
-indique copie non connectée ; l'analyse autonome et le momentum fonctionnent.
+FOMOAPI est intégré à partir de la version 2.1.2. La clé se saisit dans
+Connexions et est conservée dans le même coffre chiffré Windows que les clés
+MEXC. Elle est vérifiée par une lecture du classement 7 jours avant
+l’enregistrement et l’ouverture du WebSocket `wss://api.fomoapi.io/ws/alerts`.
+La connexion reprend à l’ouverture de l’application ; les entrées restent OFF
+jusqu’au clic ON. Le statut montre la connexion réelle, le délai annoncé,
+les signaux reçus, les correspondances MEXC et les erreurs de permission.
+
+GPT évalue les signaux avec les classements 24h/7j/30j, quand disponibles,
+actualisés toutes les 6 heures. Aucun trader ne doit être sélectionné par
+l’utilisateur. Les achats rejoués à la reconnexion, transferts, messages
+sans identité de token vérifiable et événements périmés sont écartés. Les
+identifiants consommés sont conservés dans SQLite avant la décision GPT.
+Chaque achat copié utilise le budget global et le circuit habituel MEXC,
+sans achat ou financement on-chain. Les achats sont examinés par lots de
+16 événements par cycle ; ce nombre ne limite pas les positions ouvertes.
+
+La clé Spot MEXC doit autoriser `SPOT_WITHDRAW_READ`, permission de lecture
+nécessaire pour `/api/v3/capital/config/getall`. Aucun endpoint de retrait ou
+transfert n’est appelé et les droits WRITE correspondants sont refusés.
+La correspondance exige le réseau ET l’adresse du contrat dans les données
+MEXC : le ticker ne suffit jamais. Les actifs non listés, ambigus ou non
+négociables par API sont ignorés. Un contrat Futures ne reçoit un candidat
+que si son actif de base correspond exactement à la monnaie MEXC identifiée ;
+les variantes à multiplicateur non identifiées sont ignorées.
+
+Une vente du leader ferme entièrement sa propre position copiée sur le même
+token, même en mode OFF, sans appel GPT ou catalogue de monnaies. Le stop/TP
+peut la fermer avant ce signal. Une vente ne crée pas de SHORT. Le flux app
+FOMO peut omettre des transactions : ce n’est pas une copie intégrale ou une
+vitesse d’exécution garantie. En cas de coupure, les sorties locales restent
+suivies ; les nouvelles copies attendent une connexion valide. Une vente
+reçue pendant l’analyse invalide le nouvel achat concerné.
+
+FOMOAPI est un fournisseur de données indépendant ; ce connecteur n’est pas
+une connexion au compte de trading CopyFOMO. La source FOMOAPI ne change
+pas le décideur : GPT reste le seul modèle utilisé. Sans clé FOMOAPI,
+l’analyse autonome et le momentum continuent.
 Les limites de requêtes et de forfait GPT peuvent suspendre l'analyse des
 entrées. Elles ne désactivent pas le suivi des sorties.
 
@@ -95,7 +131,7 @@ Ces tests ne constituent pas des essais d'exécution avec un compte réel.
 L'accès OAuth personnel, les permissions MEXC et les exécutions doivent
 être vérifiés sur le PC et le compte de chaque utilisateur.
 
-Connexions chiffrées localement via Windows DPAPI. Les clés MEXC ne sont
+Connexions chiffrées localement via Windows DPAPI. Les clés MEXC et FOMOAPI ne sont
 jamais envoyées à GPT, au tableau de bord, à GitHub ou au créateur.
 Le programme n'est pas un produit officiel OpenAI ou MEXC. Déconnecter
 ChatGPT supprime ses jetons locaux ; révocation distante non confirmée.
@@ -109,6 +145,10 @@ ChatGPT supprime ses jetons locaux ; révocation distante non confirmée.
     npm run dist:win
 
 ## Documentation
+
+- https://fomoapi.io/docs
+- https://fomoapi.io/pricing
+- https://www.mexc.com/api-docs/spot-v3/wallet-endpoints/query-the-currency-information
 
 - https://developers.openai.com/cookbook/articles/sign-in-with-chatgpt
 - https://www.mexc.com/api-docs/spot-v3/spot-account-trade/new-order
