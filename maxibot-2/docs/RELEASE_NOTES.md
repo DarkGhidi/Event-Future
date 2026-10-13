@@ -1,3 +1,17 @@
+# Maxibot 2.0 — Windows v2.1.3 bêta 1
+
+Corrige le traitement des erreurs de requête GPT : les erreurs HTTP 400
+sont classées sans exposer le corps de réponse, puis les nouvelles entrées
+sont automatiquement mises OFF. Le journal peut désormais distinguer les
+problèmes de schéma, de paramètre, de modèle ou de taille de requête.
+
+70+ tests automatisés, compilation et démarrage empaqueté Windows. Aucun
+ordre avec des fonds réels n’a été utilisé pour la validation.
+
+Installateur et portable x64, non signés ; empreintes dans SHA256SUMS.txt.
+
+---
+
 # Maxibot 2.0 — Windows v2.1.2 bêta 1
 
 Ajoute FOMOAPI au moteur autonome GPT/MEXC. La clé est saisie dans

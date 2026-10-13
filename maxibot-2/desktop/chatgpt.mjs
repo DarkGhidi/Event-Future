@@ -7,6 +7,20 @@ const SCOPES = 'openid profile email offline_access resource.invoke chatgpt.toke
 const jwks = createRemoteJWKSet(new URL(ISSUER + '/.well-known/jwks.json'));
 const random = () => randomBytes(32).toString('base64url');
 const same = (a, b) => typeof a === 'string' && typeof b === 'string' && Buffer.byteLength(a) === Buffer.byteLength(b) && timingSafeEqual(Buffer.from(a), Buffer.from(b));
+const BAD_REQUEST_CODES = new Map([
+  ['invalid_json_schema','CHATGPT_REQUEST_SCHEMA'], ['schema_not_supported','CHATGPT_REQUEST_SCHEMA'],
+  ['unsupported_parameter','CHATGPT_REQUEST_PARAMETER'], ['unknown_parameter','CHATGPT_REQUEST_PARAMETER'],
+  ['model_not_found','CHATGPT_REQUEST_MODEL'], ['unsupported_model','CHATGPT_REQUEST_MODEL'],
+  ['context_length_exceeded','CHATGPT_REQUEST_TOO_LARGE'], ['input_too_long','CHATGPT_REQUEST_TOO_LARGE']
+]);
+async function responseError(r) {
+  if (r.status === 401) return 'CHATGPT_RECONNECT';
+  if (r.status === 429) return 'CHATGPT_USAGE_LIMIT';
+  if (r.status === 400) {
+    try { const d = await r.json(); const code = d?.error?.code; if (typeof code === 'string' && BAD_REQUEST_CODES.has(code)) return BAD_REQUEST_CODES.get(code); } catch {}
+  }
+  return 'CHATGPT_HTTP_' + r.status;
+}
 export async function verifyIdentity(token, clientId, nonce, selected = null, keys = jwks) {
   const { payload } = await jwtVerify(token, keys, { issuer: ISSUER, audience: clientId, algorithms: ['RS256', 'ES256'], requiredClaims: ['sub', 'exp', 'iat'], clockTolerance: 5 });
   if (!same(payload.nonce, nonce)) throw new Error('CHATGPT_NONCE_INVALID');
@@ -128,10 +142,7 @@ export class ChatGPT {
   async response(body) {
     const token = await this.accessToken();
     const r = await this.request(RESOURCE + '/responses', { method: 'POST', headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify({ ...body, store: false, stream: true }), signal: AbortSignal.timeout(120000) });
-    if (!r.ok) {
-      if (r.status === 401) throw new Error('CHATGPT_RECONNECT');
-      if (r.status === 429) throw new Error('CHATGPT_USAGE_LIMIT'); throw new Error('CHATGPT_HTTP_' + r.status);
-    }
+    if (!r.ok) throw new Error(await responseError(r));
     return consumeResponse(r.body);
   }
   disconnectLocal() {
