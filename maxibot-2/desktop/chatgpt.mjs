@@ -13,11 +13,20 @@ const BAD_REQUEST_CODES = new Map([
   ['model_not_found','CHATGPT_REQUEST_MODEL'], ['unsupported_model','CHATGPT_REQUEST_MODEL'],
   ['context_length_exceeded','CHATGPT_REQUEST_TOO_LARGE'], ['input_too_long','CHATGPT_REQUEST_TOO_LARGE']
 ]);
+function safeDiagnostic(value) {
+  if (typeof value !== 'string' || !/^[A-Za-z0-9_.\[\]-]{1,80}$/.test(value)) return null;
+  return value.toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 64) || null;
+}
 async function responseError(r) {
   if (r.status === 401) return 'CHATGPT_RECONNECT';
   if (r.status === 429) return 'CHATGPT_USAGE_LIMIT';
   if (r.status === 400) {
-    try { const d = await r.json(); const code = d?.error?.code; if (typeof code === 'string' && BAD_REQUEST_CODES.has(code)) return BAD_REQUEST_CODES.get(code); } catch {}
+    try {
+      const raw = await r.text(), d = raw.length <= 8192 ? JSON.parse(raw) : null, e = d?.error;
+      const code = safeDiagnostic(e?.code), type = safeDiagnostic(e?.type), param = safeDiagnostic(e?.param);
+      const base = typeof e?.code === 'string' ? BAD_REQUEST_CODES.get(e.code) || 'CHATGPT_HTTP_400' : 'CHATGPT_HTTP_400';
+      return [base, code && 'CODE_' + code, type && 'TYPE_' + type, param && 'PARAM_' + param].filter(Boolean).join('_');
+    } catch {}
   }
   return 'CHATGPT_HTTP_' + r.status;
 }
