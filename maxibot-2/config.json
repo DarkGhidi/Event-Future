@@ -19,8 +19,6 @@
   "maxDailyLossPct": 0.03,
   "maxDrawdownPct": 0.10,
   "maxCallsPerDay": 144,
-  "maxTokensPerDay": 300000,
-  "callTokenReserve": 18000,
   "maxOutputTokens": 5000,
   "profiles": [
     {"name": "exploration", "minConfidence": 0.55},

@@ -51,10 +51,12 @@ export class LiveMexc extends Mexc {
     const futures=keys?.futuresKey?await this.signed('futures','/api/v1/private/account/assets'):[];
     return {spot:finite(spot?.balances?.find(b=>b.asset==='USDT')?.free??0),futures:finite(futures.find(b=>b.currency==='USDT')?.availableBalance??0),balances:spot?.balances??[]};
   }
-  async discovery(enabled){
+  async discovery(){
     const markets=[];
-    if(enabled.spotCanTrade){const [info,allowed,tickers]=await Promise.all([this.json('/api/v3/exchangeInfo'),this.signed('spot','/api/v3/selfSymbols'),this.json('/api/v3/ticker/24hr')]);const allowedSet=new Set(allowed);for(const s of info.symbols??[]){if(s.quoteAsset!=='USDT'||s.status!=='1'||s.isSpotTradingAllowed!==true||!allowedSet.has(s.symbol)||![1,'1'].includes(s.tradeSideType))continue;const t=tickers.find(t=>t.symbol===s.symbol);if(!t)continue;markets.push({market:'spot',asset:s.baseAsset,symbol:s.symbol,meta:s,score:finite(t.quoteVolume)*(.1+Math.abs(finite(t.priceChangePercent))/100)});}}
-    if(enabled.futuresCanTrade){const [contracts,tickers]=await Promise.all([this.json('/api/v1/contract/detail/country'),this.json('/api/v1/contract/ticker')]);for(const s of Array.isArray(contracts)?contracts:[contracts]){if(s.quoteCoin!=='USDT'||s.settleCoin!=='USDT'||s.state!==0||s.apiAllowed!==true||![1,3].includes(s.positionOpenType))continue;const t=tickers.find(t=>t.symbol===s.symbol);if(!t)continue;markets.push({market:'futures',asset:s.baseCoin,symbol:s.symbol,meta:s,score:finite(t.amount24??0)*(.1+Math.abs(finite(t.riseFallRate??0)))});}}
+    const [info,tickers]=await Promise.all([this.json('/api/v3/exchangeInfo'),this.json('/api/v3/ticker/24hr')]);
+    for(const s of info.symbols??[]){if(s.quoteAsset!=='USDT'||s.status!=='1'||s.isSpotTradingAllowed!==true||![1,'1'].includes(s.tradeSideType))continue;const t=tickers.find(t=>t.symbol===s.symbol);if(!t)continue;markets.push({market:'spot',asset:s.baseAsset,symbol:s.symbol,meta:s,score:finite(t.quoteVolume)*(.1+Math.abs(finite(t.priceChangePercent))/100)});}
+    const [contracts,futuresTickers]=await Promise.all([this.json('/api/v1/contract/detail/country'),this.json('/api/v1/contract/ticker')]);
+    for(const s of Array.isArray(contracts)?contracts:[contracts]){if(s.quoteCoin!=='USDT'||s.settleCoin!=='USDT'||s.state!==0||s.apiAllowed!==true||![1,3].includes(s.positionOpenType))continue;const t=futuresTickers.find(t=>t.symbol===s.symbol);if(!t)continue;markets.push({market:'futures',asset:s.baseCoin,symbol:s.symbol,meta:s,score:finite(t.amount24??0)*(.1+Math.abs(finite(t.riseFallRate??0)))});}
     return markets.sort((a,b)=>b.score-a.score);
   }
   async quote(item){const q=await this.snapshot(item.asset,item.market);return {...q,meta:item.meta};}

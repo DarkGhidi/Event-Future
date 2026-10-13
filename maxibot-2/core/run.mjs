@@ -56,14 +56,13 @@ if (command==='account-check') {
       if(state.api.day!==dayKey(tick)) state.api={day:dayKey(tick),calls:0,tokens:0};
       if(candidates.length && state.status==='running' && !existsSync(`${dataDir}/STOP`)) {
         for(const candidate of candidates) candidate.activeDirections=Object.values(state.lanes).filter(l=>l.source===candidate.source && l.market===candidate.snapshot.market).flatMap(l=>l.positions.filter(p=>p.snapshotId===candidate.snapshot.id).map(p=>({profile:l.profile.name,action:p.side===1?'LONG':'SHORT',leader:p.leader})));
-        if(state.api.calls>=config.maxCallsPerDay || state.api.tokens+config.callTokenReserve>config.maxTokensPerDay) events.push({kind:'gpt_budget_skip',time:tick,data:{candidates:candidates.map(c=>c.id)}});
+        if(state.api.calls>=config.maxCallsPerDay) events.push({kind:'gpt_budget_skip',time:tick,data:{candidates:candidates.map(c=>c.id)}});
         else {
-          // Réserver et sauvegarder avant appel : crash/refus/timeout ne renouvelle pas le budget.
-          state.api.calls++; state.api.tokens+=config.callTokenReserve;
+          state.api.calls++;
           store.save(state,events.splice(0));
           try {
             const out=await judge(candidates,config);
-            state.api.tokens+=Math.max(0,out.usage.total_tokens-config.callTokenReserve);
+            state.api.tokens+=Math.max(0,out.usage.total_tokens);
             events.push({kind:'gpt',time:Date.now(),data:{decisions:out.decisions,usage:out.usage,model:process.env.OPENAI_MODEL}});
             // Rafraîchir les cotations après la latence GPT : aucune exécution au prix d'avant l'appel.
             const affected=[...new Set(candidates.map(c=>c.snapshot.id))];

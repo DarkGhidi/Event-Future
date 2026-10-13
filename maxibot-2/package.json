@@ -1,8 +1,8 @@
 {
   "name": "maxibot-2-desktop",
-  "version": "2.1.7",
+  "version": "2.1.8",
   "private": true,
-  "description": "Maxibot autonome GPT/MEXC, observation puis ordres r\u00e9els",
+  "description": "Maxibot autonome GPT/MEXC, observation puis ordres réels",
   "author": "Maxibot Contributors",
   "license": "MIT",
   "type": "module",
@@ -50,7 +50,7 @@
       "signAndEditExecutable": false
     },
     "nsis": {
-      "artifactName": "Maxibot-Setup-2.1.7-x64.exe",
+      "artifactName": "Maxibot-Setup-2.1.8-x64.exe",
       "oneClick": false,
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,
@@ -62,7 +62,7 @@
       "language": "1036"
     },
     "portable": {
-      "artifactName": "Maxibot-Portable-2.1.7-x64.exe"
+      "artifactName": "Maxibot-Portable-2.1.8-x64.exe"
     }
   }
 }

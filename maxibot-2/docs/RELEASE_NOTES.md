@@ -1,3 +1,23 @@
+# Maxibot 2.0 — Windows v2.1.8 bêta 1
+
+- Retire le plafond quotidien de tokens propre à Maxibot ; garde le plafond
+  distinct de 144 appels GPT par jour. Les limites de compte ChatGPT restent
+  appliquées par ChatGPT.
+- Compte les tokens réellement déclarés par GPT au lieu de réserver 18 000
+  tokens par tentative, y compris quand ChatGPT refuse la requête.
+- Garde le portefeuille en simulation après les sept jours couverts. Le scan
+  utilise les cours publics MEXC Spot/Futures et ne nécessite aucun droit
+  d'envoi d'ordres. Aucun passage automatique en réel.
+- Bloque toute nouvelle entrée si un ancien journal est en mode réel ; le suivi
+  d'éventuelles positions existantes continue pour gérer leurs sorties.
+
+Validation locale par tests et compilation, puis suite complète et build Windows
+par la CI de release. Aucun ordre réel n'est utilisé dans les tests.
+
+Installateur et portable x64, non signés ; empreintes dans SHA256SUMS.txt.
+
+---
+
 # Maxibot 2.0 — Windows v2.1.7 bêta 1
 
 Le code générique `NETWORK_OR_DATA_ERROR` est remplacé par des diagnostics

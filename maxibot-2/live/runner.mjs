@@ -10,7 +10,16 @@ export class AutonomousRunner {
   constructor(dir,config,chatgpt,broker,notify=()=>{},options={}){
     this.config=config;this.chatgpt=chatgpt;this.broker=broker;this.notify=notify;this.clock=options.clock??Date.now;this.trainingRequired=options.trainingRequired??TRAINING;
     this.store=new Store(join(dir,'execution.sqlite'));this.state=this.store.load();this.busy=false;this.timer=null;this.shutdown=false;this.generation=0;this.lastError=null;this.universe=[];this.universeAt=0;this.sourceFile=null;this.fomo=options.fomo??null;this.copyEntrySince=Infinity;
-    if(this.state){this.state.enabled=false;this.save();if(this.hasExposure)this.timer=setTimeout(()=>this.cycle(),100);}
+    if(this.state){
+      this.state.api??={day:new Date(this.clock()).toISOString().slice(0,10),calls:0,tokens:0};
+      if(this.state.api.tokenAccountingVersion!==2){
+        // Older builds kept the full per-call reserve after GPT returned HTTP errors.
+        // If no plan was ever accepted, that estimate is not a real token-usage figure.
+        if((this.state.training?.decisions??0)===0)this.state.api.tokens=0;
+        this.state.api.tokenAccountingVersion=2;
+      }
+      this.state.enabled=false;this.save();if(this.hasExposure)this.timer=setTimeout(()=>this.cycle(),100);
+    }
   }
   get hasExposure(){return !!this.state&&(this.state.portfolio.positions.length>0||this.state.portfolio.orders.some(o=>!o.settled));}
   get active(){return !!this.state?.enabled||this.hasExposure;}
@@ -22,8 +31,9 @@ export class AutonomousRunner {
   async activate(capital,generation){
     if(this.busy)throw new Error('CYCLE_BUSY');if(!Number.isFinite(capital)||capital<=0||capital>1e7)throw new Error('CAPITAL_INVALID');
     if(!this.chatgpt.session().sharing)throw new Error('CHATGPT_PLAN_DISABLED');
+    if(this.state?.portfolio.mode==='live')throw new Error('LIVE_TRADING_DISABLED');
     if(this.state&&capital!==this.state.portfolio.allocated&&(this.hasExposure||this.state.enabled))throw new Error('CAPITAL_STILL_ENGAGED');
-    this.access=await this.broker.connectCheck();if(this.state?.uid&&this.state.uid!==this.access.uid)throw new Error('MEXC_ACCOUNT_CHANGED');if(!this.access.spotCanTrade&&!this.access.futuresCanTrade)throw new Error('MEXC_TRADE_PERMISSION_REQUIRED');
+    this.access=await this.broker.connectCheck();if(this.state?.uid&&this.state.uid!==this.access.uid)throw new Error('MEXC_ACCOUNT_CHANGED');
     const models=await this.chatgpt.models();if(!models.length)throw new Error('GPT_MODELS_UNAVAILABLE');
     if(!this.state)this.state={version:2,uid:this.access.uid,enabled:false,portfolio:freshPortfolio(capital),training:{coveredMs:0,decisions:0,lastHealthy:null},model:models[0].id,api:{day:new Date(this.clock()).toISOString().slice(0,10),calls:0,tokens:0},lastDecision:0,processed:[],trainingArchive:null};
     if(this.state.portfolio.reconcileFault)throw new Error(this.state.portfolio.reconcileFault);
@@ -75,6 +85,7 @@ export class AutonomousRunner {
   async submit(o,generation){
     const s=this.state.portfolio;this.save(); // Durable reservation BEFORE any exchange write.
     if(s.mode==='paper'){if(o.kind==='open'&&(!this.state.enabled||this.generation!==generation)){rejectOrder(s,o,'OFF_CANCELLED');this.save();return;}this.paperFill(o);return;}
+    if(o.kind==='open'){this.state.enabled=false;rejectOrder(s,o,'LIVE_TRADING_DISABLED');this.save();return;}
     try{const r=await this.broker.submit(o,o.kind==='open'?()=>this.state.enabled&&this.generation===generation&&!this.shutdown:null);o.exchangeId=String(r.orderId??r.data?.orderId??'');o.status='sent';this.save();}
     catch(e){if(e instanceof ApiError&&e.definite){rejectOrder(s,o,e.message);}else{o.status='unknown';this.lastError='ORDER_RESULT_UNKNOWN';log(s,'reconcile','Envoi incertain : aucun renvoi automatique.');}this.save();}
   }
@@ -105,14 +116,22 @@ export class AutonomousRunner {
     for(const p of s.positions){const q=quotes[p.plan.market+':'+p.plan.asset];if(q)candidates.push({id:'position:'+p.id,q,source:p.plan.source,position:p});}
     if(!choices.length||!Object.keys(quotes).length){this.state.training.lastHealthy=null;this.save();return;}
     if(s.mode==='paper'){const now=this.clock(),last=this.state.training.lastHealthy;if(last&&now-last<=120000)this.state.training.coveredMs+=Math.max(0,now-last);this.state.training.lastHealthy=now;
-      if(this.state.training.coveredMs>=this.trainingRequired){for(const p of [...s.positions])await this.closePosition(p,'training_end');if(s.positions.length||s.orders.some(o=>!o.settled))return;const a=await this.broker.accounts();if(a.spot+a.futures<s.allocated){this.state.enabled=false;throw new Error('MEXC_FUNDS_INSUFFICIENT');}this.state.trainingArchive=structuredClone(s);this.state.portfolio=freshPortfolio(s.allocated,'live');log(this.state.portfolio,'mode','Sept jours d’observation terminés : passage au réel avec le capital initial, sans gains fictifs.');this.save();return;}}
+      if(this.state.training.coveredMs>=this.trainingRequired&&!this.state.training.completedAt){this.state.training.completedAt=now;log(s,'mode','Sept jours de simulation couverts. La simulation en données MEXC en direct continue ; aucun ordre réel ne sera envoyé automatiquement.');this.save();}}
     const generation=this.generation;if(this.clock()-this.state.lastDecision<this.config.decisionSeconds*1000&&!candidates.some(c=>c.signal&&!c.position))return;
     this.state.lastDecision=this.clock();const day=new Date(this.clock()).toISOString().slice(0,10);if(this.state.api.day!==day)this.state.api={day,calls:0,tokens:0};
-    if(this.state.api.calls>=this.config.maxCallsPerDay||this.state.api.tokens+this.config.callTokenReserve>this.config.maxTokensPerDay){log(s,'skip','Budget de requêtes GPT du jour atteint ; les sorties continuent.');this.save();return;}
+    if(this.state.api.calls>=this.config.maxCallsPerDay){log(s,'skip',`Plafond quotidien d’appels GPT atteint (${this.state.api.calls}/${this.config.maxCallsPerDay}) ; les sorties simulées continuent.`);this.save();return;}
     const a=s.mode==='paper'?{spot:available(s),futures:available(s)}:await this.broker.accounts();
-    this.state.api.calls++;this.state.api.tokens+=this.config.callTokenReserve;this.save();
-    let result;try{result=parsePlan(await this.chatgpt.response(planRequest(this.state.model,candidates,{available:available(s),closed:s.closed,events:s.events.slice(0,30)},{spot:a.spot,futures:a.futures},this.config)),candidates);}catch(e){const code=e?.message||'';if(code.startsWith('CHATGPT_')||code.startsWith('GPT_'))this.state.enabled=false;throw e;}
-    this.state.api.tokens+=Math.max(0,result.usage.total_tokens-this.config.callTokenReserve);this.state.training.decisions++;this.save();
+    this.state.api.calls++;this.save();
+    let result;try{
+      const response=await this.chatgpt.response(planRequest(this.state.model,candidates,{available:available(s),closed:s.closed,events:s.events.slice(0,30)},{spot:a.spot,futures:a.futures},this.config));
+      if(Number.isFinite(response?.usage?.total_tokens)){this.state.api.tokens+=response.usage.total_tokens;this.save();}
+      result=parsePlan(response,candidates);
+    }catch(e){
+      const code=String(e?.message??'');
+      if(code.startsWith('CHATGPT_')||code.startsWith('GPT_'))this.state.enabled=false;
+      throw e;
+    }
+    this.state.training.decisions++;this.save();
     for(const d of result.decisions){const c=candidates.find(c=>c.id===d.id);log(s,'decision',c.q.asset+' · '+d.action+' · '+d.reason);if(d.action==='CLOSE'&&c.position){await this.closePosition(c.position,'GPT');continue;}if(!['LONG','SHORT'].includes(d.action))continue;
       if(!this.state.enabled||this.generation!==generation||s.orders.some(o=>!o.settled)||s.reconcileFault)break;
       try{
@@ -164,6 +183,6 @@ export class AutonomousRunner {
     const eq=s.cash+s.positions.reduce((n,p)=>n+(p.plan.market==='spot'?p.quantity*p.mark:p.principal+p.unrealized),0),wins=s.closed.filter(t=>t.net>0).length;
     return {status:this.state.enabled?'running':'off',active:this.active,enabled:this.state.enabled,starting:this.starting===true,busy:this.busy,paused:!this.state.enabled,mode:s.mode,liveEnabled:s.mode==='live',startedAt:s.startedAt,updatedAt:s.updatedAt,phase:s.mode==='paper'?'observation':'live',progress:Math.min(1,this.state.training.coveredMs/this.trainingRequired),lastError:this.lastError||s.reconcileFault,model:this.state.model,allocated:s.allocated,free:available(s),reserved:reserved(s),pending:s.orders.filter(o=>!o.settled).length,copyConnected:fomo.connected||!!this.sourceFile,externalCopyConfigured:!!this.sourceFile,fomo,
       selected:{id:'bot',initial:s.allocated,equity:eq,pnl:eq-s.allocated,pnlPct:(eq/s.allocated-1)*100,drawdown:s.drawdown,closed:s.closed.length,wins,losses:s.closed.length-wins,winRate:s.closed.length?wins/s.closed.length:0},
-      positions:s.positions.map(p=>({id:p.id,asset:p.plan.asset,market:p.plan.market,side:p.plan.side,entry:p.entry,mark:p.mark,pnl:p.unrealized,stop:p.plan.stop,take:p.plan.take,leverage:p.plan.leverage,source:p.plan.source,margin:p.principal,protection:s.mode==='paper'?'Observation · sorties simulées':p.dust?'Reste sous le minimum MEXC':p.plan.market==='spot'?'PC allumé nécessaire':p.protected?'MEXC · isolée':'Vérification MEXC'})),trades:s.closed.slice(-50),history:s.history,events:s.events.slice(0,60),lanes:[],api:{calls:this.state.api.calls,reservedTokens:this.state.api.tokens,maxCalls:this.config.maxCallsPerDay},monitoring:this.hasExposure,trainingDecisions:this.state.training.decisions};
+      positions:s.positions.map(p=>({id:p.id,asset:p.plan.asset,market:p.plan.market,side:p.plan.side,entry:p.entry,mark:p.mark,pnl:p.unrealized,stop:p.plan.stop,take:p.plan.take,leverage:p.plan.leverage,source:p.plan.source,margin:p.principal,protection:s.mode==='paper'?'Simulation · sorties fictives':p.dust?'Reste sous le minimum MEXC':p.plan.market==='spot'?'PC allumé nécessaire':p.protected?'MEXC · isolée':'Vérification MEXC'})),trades:s.closed.slice(-50),history:s.history,events:s.events.slice(0,60),lanes:[],api:{calls:this.state.api.calls,tokens:this.state.api.tokens,maxCalls:this.config.maxCallsPerDay},monitoring:this.hasExposure,trainingDecisions:this.state.training.decisions};
   }
 }

@@ -38,6 +38,6 @@ export function readDashboard(path,laneId='spot:autonomous:balanced') {
       selected:{id:lane.id,initial,equity,realized:lane.balance-initial,unrealized,pnl:equity-initial,pnlPct:(equity/initial-1)*100,winRate:all.winRate,closed:all.closed,wins:lane.closed.filter(t=>t.net>0).length,losses:lane.closed.filter(t=>t.net<=0).length,drawdown:all.drawdown,halted:lane.halted||lane.dailyHalt},
       lanes:Object.values(state.lanes).map(l=>({id:l.id,market:l.market,source:l.source,profile:l.profile.name,net:l.balance-initial,closed:l.closed.length,open:l.positions.length,halted:l.halted})),
       positions:lane.positions.map(p=>({id:p.id,asset:p.snapshotId.split(':')[1],side:p.side===1?'LONG':'SHORT',leader:p.leader,entry:p.entry,mark:p.lastPrice,pnl:p.side*p.quantity*(p.lastPrice-p.entry),openedAt:p.openedAt,stop:p.stop,take:p.take})),
-      events,history,api:{calls:state.api.calls,reservedTokens:state.api.tokens,maxCalls:state.config.maxCallsPerDay,maxTokens:state.config.maxTokensPerDay},selection:state.selection,copyConnected:false};
+      events,history,api:{calls:state.api.calls,tokens:state.api.tokens,maxCalls:state.config.maxCallsPerDay},selection:state.selection,copyConnected:false};
   } finally {db.close();}
 }

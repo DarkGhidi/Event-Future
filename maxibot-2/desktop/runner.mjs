@@ -68,13 +68,13 @@ export class Runner {
     if (s.api.day !== dayKey(tick)) s.api = {day:dayKey(tick),calls:0,tokens:0};
     if (candidates.length && s.status === 'running' && !this.paused && this.active) {
       for (const item of candidates) item.activeDirections = Object.values(s.lanes).filter(l=>l.source===item.source&&l.market===item.snapshot.market).flatMap(l=>l.positions.filter(p=>p.snapshotId===item.snapshot.id).map(p=>({profile:l.profile.name,action:p.side===1?'LONG':'SHORT',leader:p.leader})));
-      if (s.api.calls>=c.maxCallsPerDay || s.api.tokens+c.callTokenReserve>c.maxTokensPerDay) events.push({kind:'gpt_budget_skip',time:tick,data:{reason:'DAILY_LIMIT'}});
+      if (s.api.calls>=c.maxCallsPerDay) events.push({kind:'gpt_budget_skip',time:tick,data:{reason:'DAILY_CALL_LIMIT'}});
       else {
-        s.api.calls++; s.api.tokens+=c.callTokenReserve;
+        s.api.calls++;
         this.store.save(s,events.splice(0));
         try {
           const out = parseDecisionResult(await this.chatgpt.response(decisionRequest(candidates,c,c.chatGPTModel)), candidates);
-          s.api.tokens+=Math.max(0,out.usage.total_tokens-c.callTokenReserve);
+          s.api.tokens+=Math.max(0,out.usage.total_tokens);
           events.push({kind:'gpt',time:Date.now(),data:{decisions:out.decisions,usage:out.usage,model:c.chatGPTModel}});
           for (const id of [...new Set(candidates.map(item=>item.snapshot.id))]) {
             const old=quotes[id];

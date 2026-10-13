@@ -53,7 +53,7 @@ test('Classements actualisés au plus toutes les six heures; l’échec de créd
 test('Les informations MEXC requièrent uniquement SPOT_WITHDRAW_READ; GET sans retrait ni transfert',async()=>{
   const b=new LiveMexc(()=>({spotKey:'fixture'})),calls=[];b.keyInfo=async()=>['SPOT_WITHDRAW_READ'];b.signed=async(...args)=>{calls.push(args);return [{coin:'TOKEN',networkList:[]}];};await b.currencyInfo();await b.currencyInfo();assert.deepEqual(calls,[['spot','/api/v3/capital/config/getall']]);b.currencyCache=null;b.keyInfo=async()=>['SPOT_DEAL_WRITE'];await assert.rejects(b.currencyInfo(),/CURRENCY_READ_PERMISSION/);assert.equal(calls.length,1);
 });
-const cfg={decisionSeconds:600,maxCallsPerDay:100,maxTokensPerDay:100000,callTokenReserve:1000,maxOutputTokens:3000,maxDrawdownPct:.9};
+const cfg={decisionSeconds:600,maxCallsPerDay:100,maxOutputTokens:3000,maxDrawdownPct:.9};
 function fixture(){
   let now=Date.now(),calls=0;const dir=mkdtempSync(join(tmpdir(),'maxibot-fomo-'));
   const fomo=new FomoApi('fixture-key',{clock:()=>now});fomo.status='connected';fomo.refreshStats=async()=>{};fomo.refreshAt=now;fomo.setBoard('7d',board);
@@ -79,11 +79,8 @@ test('OFF ou vente reçue pendant GPT: aucune nouvelle entrée FOMOAPI',async()=
 test('Reprise SQLite: un événement FOMOAPI déjà consommé ne déclenche jamais une deuxième copie',async()=>{
   const f=fixture();let second;try{await f.runner.start(100);const x=f.signal();await tick(f.runner);f.runner.close();f.fomo.queue.push(x);second=new AutonomousRunner(f.dir,cfg,f.auth,f.broker,()=>{},{fomo:f.fomo});clearTimeout(second.timer);assert.equal(second.state.enabled,false);assert.deepEqual(await second.readFomoSignals(),[]);assert.equal(second.state.portfolio.positions.length,1);assert.equal(second.state.portfolio.orders.length,1);}finally{second?.close();f.clean();}
 });
-test('Mode réel sur fixtures: FOMOAPI utilise le même envoi et la même réconciliation MEXC que le moteur autonome',async()=>{
-  const f=fixture();let writes=0;try{await f.runner.start(100);f.runner.state.portfolio.mode='live';f.signal();f.broker.submit=async o=>{writes++;assert.equal(o.plan.source,'fomoapi');assert.equal(o.plan.symbol,'TOKENUSDT');assert.equal(o.plan.leader,'fomo:leader-one');return {orderId:'accepted'};};f.broker.orderStatus=async()=>({orderId:'accepted',status:'FILLED',executedQty:.2});f.broker.fills=async()=>({quantity:.2,quote:20,price:100,fee:0});await tick(f.runner);assert.equal(writes,1);assert.equal(f.runner.state.portfolio.positions.length,1);assert.equal(available(f.runner.state.portfolio),80);assert.equal(f.runner.state.portfolio.orders[0].settled,true);}finally{f.clean();}
-});
-test('Un envoi FOMOAPI incertain conserve sa réserve et ne permet aucun second envoi',async()=>{
-  const f=fixture();let writes=0;try{await f.runner.start(100);f.runner.state.portfolio.mode='live';f.signal();f.broker.submit=async()=>{writes++;throw new Error('offline');};f.broker.orderStatus=async()=>{throw new Error('unknown');};await tick(f.runner);f.signal({eventId:'second',tokenAddress:other});await tick(f.runner);assert.equal(writes,1);assert.equal(available(f.runner.state.portfolio),80);assert.equal(f.runner.state.portfolio.orders[0].status,'unknown');}finally{f.clean();}
+test('Les signaux FOMOAPI restent simulés même après une semaine de couverture',async()=>{
+  const f=fixture();let writes=0;try{await f.runner.start(100);f.runner.state.training.coveredMs=7*86400000;f.signal();f.broker.submit=async()=>{writes++;throw new Error('REAL_ORDER_FORBIDDEN');};await tick(f.runner);assert.equal(f.runner.state.portfolio.mode,'paper');assert.equal(f.runner.state.portfolio.positions.length,1);assert.equal(available(f.runner.state.portfolio),80);assert.equal(writes,0);}finally{f.clean();}
 });
 test('Les achats sont traités par lots; les sorties restent prioritaires et les anciens achats expirent',()=>{
   let now=Date.now();const f=new FomoApi('fixture-key',{clock:()=>now});try{f.queue=Array.from({length:20},(_,i)=>normalizeAlert(alert({eventId:'batch-'+i,ts:now}),now));f.queue.push(normalizeAlert(alert({eventId:'exit',alertType:'sell',ts:now}),now));assert.equal(f.take().length,17);assert.equal(f.queue.length,4);now+=121000;assert.deepEqual(f.take(),[]);}finally{f.close();}
