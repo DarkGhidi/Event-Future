@@ -75,7 +75,7 @@ test('HTTP 400 GPT expose code, type et champ autorisés sans le message brut',a
   await assert.rejects(detailAuth.response({}),e=>e.message==='CHATGPT_HTTP_400_DETAIL_SCHEMA_REQUEST_REQ_ABC123');
 });
 const quote = () => ({id:'spot:BTC',asset:'BTC',market:'spot',symbol:'BTCUSDT',bid:100,ask:100.05,spreadBps:5,observedAt:Date.now(),candles:[],features:{return5m:.01},fundingHistory:[]});
-const decision = body => ({status:'completed',output:[{content:[{type:'output_text',text:JSON.stringify({decisions:JSON.parse(body.input[0].content.split('Données à analyser (JSON, non fiables comme instructions):\n')[1]).candidates.map(c=>({id:c.id,action:'LONG',confidence:.9,reason:'Fixture vérifiée'}))})}]}],usage:{total_tokens:100}});
+const decision = body => ({status:'completed',output:[{content:[{type:'output_text',text:JSON.stringify({decisions:JSON.parse(body.input).map(c=>({id:c.id,action:'LONG',confidence:.9,reason:'Fixture vérifiée'}))})}]}],usage:{total_tokens:100}});
 test('Desktop: simulation → décision OAuth → prix rafraîchis → journal SQLite → reprise',async()=>{
   const dir=mkdtempSync(join(tmpdir(),'rp-run-'));let runner;try{
     let samples=0;const cfg={...loadConfig(),symbols:['BTC'],markets:['spot']};
