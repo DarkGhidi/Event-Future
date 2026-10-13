@@ -59,21 +59,21 @@ try {
   startRunner();stage('storage-and-runner-ready');
   handle('state',lane=>({chatgpt:chatgpt.session(),mexc:{connected:!!vault.get('mexc')?.verified,spotRead:vault.get('mexc')?.spotRead||false,futuresRead:vault.get('mexc')?.futuresRead===true,spotCanTrade:vault.get('mexc')?.spotCanTrade===true,futuresCanTrade:vault.get('mexc')?.futuresCanTrade===true},dashboard:runner.snapshot(typeof lane==='string'&&lane.length<150?lane:undefined),version:app.getVersion()}));
   handle('chatgpt-connect',async arg=>{
-    if(runner.state?.enabled||runner.busy)throw new Error('STOP_BEFORE_ACCOUNT_CHANGE');
+    if(runner.starting||runner.state?.enabled||runner.busy)throw new Error('STOP_BEFORE_ACCOUNT_CHANGE');
     const state=await chatgpt.signIn({newProfile:arg?.newProfile===true});modelList=[];
     if(state.sharing)modelList=await chatgpt.models();return {...state,models:modelList};
   });
-  handle('chatgpt-disconnect',()=>{if(runner.active)throw new Error('STOP_BEFORE_ACCOUNT_CHANGE');runner.stop();stopBlocker();chatgpt.disconnectLocal();modelList=[];return {remoteRevocationConfirmed:false};});
+  handle('chatgpt-disconnect',()=>{if(runner.starting||runner.active)throw new Error('STOP_BEFORE_ACCOUNT_CHANGE');runner.stop();stopBlocker();chatgpt.disconnectLocal();modelList=[];return {remoteRevocationConfirmed:false};});
   handle('models',async()=>{modelList=await chatgpt.models();return modelList;});
   handle('mexc-connect',async keys=>{
-    if(runner.state?.enabled||runner.busy)throw new Error('STOP_BEFORE_ACCOUNT_CHANGE');
+    if(runner.starting||runner.state?.enabled||runner.busy)throw new Error('STOP_BEFORE_ACCOUNT_CHANGE');
     if(!keyValue(keys?.spotKey)||!keyValue(keys?.spotSecret))throw new Error('MEXC_KEYS_INVALID');
     if((keys.futuresKey||keys.futuresSecret)&&(!keyValue(keys.futuresKey)||!keyValue(keys.futuresSecret)))throw new Error('MEXC_KEYS_INVALID');
     const clean={spotKey:keys.spotKey,spotSecret:keys.spotSecret,futuresKey:keys.futuresKey||'',futuresSecret:keys.futuresSecret||''};
     const result=await new LiveMexc(()=>clean).connectCheck();
     if(runner.state?.uid&&runner.state.uid!==result.uid){if(runner.hasExposure)throw new Error('MEXC_ACCOUNT_CHANGED');runner.close();vault.set('executionRunId',randomUUID());vault.set('mexc',{...clean,...result});startRunner();}else{vault.set('mexc',{...clean,...result});runner.access=result;}return result;
   });
-  handle('mexc-disconnect',()=>{if(runner.active)throw new Error('STOP_BEFORE_ACCOUNT_CHANGE');vault.set('mexc',null);return true;});
+  handle('mexc-disconnect',()=>{if(runner.starting||runner.active)throw new Error('STOP_BEFORE_ACCOUNT_CHANGE');vault.set('mexc',null);return true;});
   handle('start',async settings=>{
     if(!vault.get('mexc')?.verified)throw new Error('MEXC_KEYS_REQUIRED');
     const value=await runner.start(Number(settings.capital));

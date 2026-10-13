@@ -1,4 +1,4 @@
-# Maxibot 2.0 — version 2.1.0 bêta 1
+# Maxibot 2.0 — version 2.1.1 bêta 1
 
 Moteur d'ordres réels MEXC Spot/Futures intégré. Une allocation globale et
 ON/OFF remplacent le choix de modèle GPT, de marché et de profil.
