@@ -82,10 +82,16 @@ export async function consumeResponse(stream) {
       if (event.response?.status !== 'completed') throw new Error('CHATGPT_RESPONSE_FAILED'); completed = event.response;
     }
   };
-  for await (const chunk of stream) {
-    buffer += decode.decode(chunk, { stream: true }); buffer = buffer.replace(/\r\n/g, '\n');
-    if (buffer.length > 2_000_000) throw new Error('CHATGPT_STREAM_TOO_LARGE');
-    let end; while ((end = buffer.indexOf('\n\n')) >= 0) { consume(buffer.slice(0, end)); buffer = buffer.slice(end + 2); }
+  try {
+    for await (const chunk of stream) {
+      buffer += decode.decode(chunk, { stream: true }); buffer = buffer.replace(/\r\n/g, '\n');
+      if (buffer.length > 2_000_000) throw new Error('CHATGPT_STREAM_TOO_LARGE');
+      let end; while ((end = buffer.indexOf('\n\n')) >= 0) { consume(buffer.slice(0, end)); buffer = buffer.slice(end + 2); }
+    }
+  } catch (e) {
+    if (/^[A-Z0-9_]+$/.test(e?.message || '')) throw e;
+    if (e?.name === 'TimeoutError' || e?.name === 'AbortError') throw new Error('CHATGPT_STREAM_TIMEOUT');
+    throw new Error('CHATGPT_STREAM_ERROR');
   }
   buffer += decode.decode(); if (buffer.trim()) consume(buffer);
   if (!completed) throw new Error('CHATGPT_STREAM_INTERRUPTED'); return completed;
@@ -157,7 +163,12 @@ export class ChatGPT {
   }
   async response(body) {
     const token = await this.accessToken();
-    const r = await this.request(RESOURCE + '/responses', { method: 'POST', headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify({ ...body, store: false, stream: true }), signal: AbortSignal.timeout(120000) });
+    let r;
+    try {
+      r = await this.request(RESOURCE + '/responses', { method: 'POST', headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify({ ...body, store: false, stream: true }), signal: AbortSignal.timeout(120000) });
+    } catch (e) {
+      throw new Error(e?.name === 'TimeoutError' || e?.name === 'AbortError' ? 'CHATGPT_NETWORK_TIMEOUT' : 'CHATGPT_NETWORK_ERROR');
+    }
     if (!r.ok) throw new Error(await responseError(r));
     return consumeResponse(r.body);
   }

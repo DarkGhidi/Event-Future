@@ -1,3 +1,21 @@
+# Maxibot 2.0 — Windows v2.1.7 bêta 1
+
+Le code générique `NETWORK_OR_DATA_ERROR` est remplacé par des diagnostics
+sûrs qui distinguent un échec réseau ChatGPT, une interruption de flux, une
+réponse GPT illisible, un échec réseau MEXC ou des données JSON invalides.
+Les messages et données privées des erreurs ne sont jamais exportés.
+
+Le lecteur GPT tolère du texte autour d’un objet JSON valide, puis vérifie
+toujours chaque décision. Une erreur ou une décision invalide coupe les
+nouvelles entrées; le suivi des positions existantes continue.
+
+Tests ciblés et contrôle syntaxique validés localement. La CI Windows exécute
+la suite complète et vérifie la compilation empaquetée.
+
+Installateur et portable x64, non signés ; empreintes dans SHA256SUMS.txt.
+
+---
+
 # Maxibot 2.0 — Windows v2.1.6 bêta 1
 
 Corrige la requête GPT pour utiliser le format documenté de ChatGPT plan :

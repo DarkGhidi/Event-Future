@@ -10,11 +10,12 @@ export class LiveMexc extends Mexc {
     if(Date.now()<this.blockedUntil)throw new ApiError('COOLDOWN');
     const wait=Math.max(0,260-(Date.now()-this.lastCall));if(wait)await new Promise(r=>setTimeout(r,wait));this.lastCall=Date.now();
     const {guard,...requestOptions}=options;if(guard&&!guard())throw new ApiError('OFF_CANCELLED',true);
-    const r=await this.fetcher(BASE+path,{...requestOptions,signal:AbortSignal.timeout(15000)});
+    let r;try{r=await this.fetcher(BASE+path,{...requestOptions,signal:AbortSignal.timeout(15000)});}catch(e){throw new ApiError(e?.name==='TimeoutError'||e?.name==='AbortError'?'NETWORK_TIMEOUT':'NETWORK_ERROR');}
     if(r.status===429||r.status===418){this.blockedUntil=Date.now()+Math.max(60000,(Number(r.headers.get('retry-after'))||60)*1000);throw new ApiError('RATE_LIMIT');}
     if(!r.ok)throw new ApiError('HTTP_'+r.status); // No URL, body or headers in errors.
-    const text=await r.text();const safe=text.replace(/("(?:\\[\s\S]|[^"\\])*")|(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)/g,(all,string,number)=>string?all:/^-?\d+$/.test(number)&&BigInt(number)>BigInt(Number.MAX_SAFE_INTEGER)?JSON.stringify(number):all);
-    const d=JSON.parse(safe);if(d.success===false||(d.code!==undefined&&![0,200].includes(Number(d.code))))throw new ApiError(d.code,true);
+    let text;try{text=await r.text();}catch{throw new ApiError('NETWORK_ERROR');}
+    const safe=text.replace(/("(?:\\[\s\S]|[^"\\])*")|(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)/g,(all,string,number)=>string?all:/^-?\d+$/.test(number)&&BigInt(number)>BigInt(Number.MAX_SAFE_INTEGER)?JSON.stringify(number):all);
+    let d;try{d=JSON.parse(safe);}catch{throw new ApiError('DATA_INVALID');}if(!d||typeof d!=='object')throw new ApiError('DATA_INVALID');if(d.success===false||(d.code!==undefined&&![0,200].includes(Number(d.code))))throw new ApiError(d.code,true);
     return d.data??d;
   }
   async clock(){if(Date.now()-this.synced<60000)return;const start=Date.now(),d=await this.json('/api/v3/time');this.offset=finite(d.serverTime)-(start+Date.now())/2;this.synced=Date.now();}

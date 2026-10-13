@@ -74,6 +74,13 @@ test('HTTP 400 GPT expose code, type et champ autorisés sans le message brut',a
   const detailAuth=new ChatGPT(vault,()=>{},async()=>new Response(JSON.stringify({detail:'unsupported structured output for this request'}),{status:400,headers:{'x-request-id':'req_abc123'}}));
   await assert.rejects(detailAuth.response({}),e=>e.message==='CHATGPT_HTTP_400_DETAIL_SCHEMA_REQUEST_REQ_ABC123');
 });
+test('Erreur de transport et flux GPT conservent un diagnostic sûr',async()=>{
+  const vault={get:()=>({accessToken:'fixture-token',scopes:['chatgpt.tokens.use.direct'],expiresAt:Date.now()+3600000})};
+  const network=new ChatGPT(vault,()=>{},async()=>{throw new TypeError('secret URL and token');});
+  await assert.rejects(network.response({}),e=>e.message==='CHATGPT_NETWORK_ERROR');
+  const broken=new ReadableStream({pull(c){c.error(new TypeError('private transport detail'));}});
+  await assert.rejects(consumeResponse(broken),e=>e.message==='CHATGPT_STREAM_ERROR');
+});
 const quote = () => ({id:'spot:BTC',asset:'BTC',market:'spot',symbol:'BTCUSDT',bid:100,ask:100.05,spreadBps:5,observedAt:Date.now(),candles:[],features:{return5m:.01},fundingHistory:[]});
 const decision = body => ({status:'completed',output:[{content:[{type:'output_text',text:JSON.stringify({decisions:JSON.parse(body.input).map(c=>({id:c.id,action:'LONG',confidence:.9,reason:'Fixture vérifiée'}))})}]}],usage:{total_tokens:100}});
 test('Desktop: simulation → décision OAuth → prix rafraîchis → journal SQLite → reprise',async()=>{
