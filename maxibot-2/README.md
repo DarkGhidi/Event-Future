@@ -1,4 +1,4 @@
-# Maxibot 2.0 — Windows, version 2.1.5 bêta
+# Maxibot 2.0 — Windows, version 2.1.6 bêta
 
 Un montant global en USDT, un bouton ON/OFF. GPT choisit automatiquement
 les opportunités, les marchés disponibles, la direction, la taille,
@@ -8,8 +8,8 @@ profil ou de modèle GPT n'est demandé dans le fonctionnement normal.
 
 ## Installer
 
-Télécharger Maxibot-Setup-2.1.5-x64.exe ou Maxibot-Portable-2.1.5-x64.exe
-dans la release maxibot-v2.1.5-beta.1 de DarkGhidi/Event-Future.
+Télécharger Maxibot-Setup-2.1.6-x64.exe ou Maxibot-Portable-2.1.6-x64.exe
+dans la release maxibot-v2.1.6-beta.1 de DarkGhidi/Event-Future.
 Windows x64, dépendances incluses. Binaires non signés ; SHA256 joints.
 Les versions 2.0.0 sont des versions antérieures de simulation seulement.
 

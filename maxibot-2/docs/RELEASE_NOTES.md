@@ -1,3 +1,20 @@
+# Maxibot 2.0 — Windows v2.1.6 bêta 1
+
+Corrige la requête GPT pour utiliser le format documenté de ChatGPT plan :
+un message utilisateur dans `input`, sans paramètres de format JSON strict ni
+options facultatives non nécessaires. GPT doit renvoyer un objet JSON que
+Maxibot valide avant toute décision.
+
+Tout HTTP 400 arrête désormais les entrées, même lorsque le corps contient
+un diagnostic de catégorie inconnue. Cela évite les répétitions de requête.
+
+Tests de format de requête, sécurité OFF, FOMOAPI et simulation validés.
+Contrôle final Windows et démarrage empaqueté effectués par la CI.
+
+Installateur et portable x64, non signés ; empreintes dans SHA256SUMS.txt.
+
+---
+
 # Maxibot 2.0 — Windows v2.1.5 bêta 1
 
 Corrige le diagnostic GPT HTTP 400 : Maxibot relève désormais les réponses
