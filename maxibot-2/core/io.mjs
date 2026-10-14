@@ -6,7 +6,7 @@ export const sleep = ms => new Promise(r => setTimeout(r, ms));
 export function loadConfig(path = 'config.json') {
   const c = JSON.parse(readFileSync(path, 'utf8'));
   if (c.mode !== 'paper') throw new Error('V1: seule la simulation est implémentée. Aucun ordre réel.');
-  for (const k of ['days', 'trainingDays', 'pollSeconds', 'decisionSeconds', 'virtualCapitalUSDT', 'ticketUSDT', 'maxPositions', 'maxCallsPerDay', 'maxOutputTokens', 'maxSignalAgeSeconds', 'minClosedForSelection']) {
+  for (const k of ['days', 'trainingDays', 'pollSeconds', 'decisionSeconds', 'virtualCapitalUSDT', 'ticketUSDT', 'maxPositions', 'maxSignalAgeSeconds', 'minClosedForSelection']) {
     if (!Number.isFinite(c[k]) || c[k] <= 0) throw new Error(`Configuration invalide: ${k}`);
   }
   if (c.trainingDays >= c.days || c.ticketUSDT > c.virtualCapitalUSDT) throw new Error('Configuration des phases/capital invalide');

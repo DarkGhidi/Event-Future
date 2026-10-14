@@ -47,6 +47,7 @@ test('ID token: signature, audience, nonce et identité liés à la connexion',a
 test('Streaming: ignore les deltas non terminés, refuse une limite tardive et une coupure',async()=>{
   const response={status:'completed',output:[],usage:{total_tokens:4}};
   const text=complete(response);assert.deepEqual(await consumeResponse(stream([text.slice(0,12),text.slice(12)])),response);
+  const delta='{"decisions":[]}';const recovered=await consumeResponse(stream(['data: '+JSON.stringify({type:'response.output_text.delta',delta})+'\n\n',complete(response)]));assert.equal(recovered.output_text,delta);
   await assert.rejects(consumeResponse(stream(['data: {"type":"response.output_text.delta","delta":"not-final"}\n\n'])),/INTERRUPTED/);
   await assert.rejects(consumeResponse(stream(['data: {"type":"response.failed","response":{"error":{"code":"subscription_sharing_usage_limit_exceeded"}}}\n\n'])),/USAGE_LIMIT/);
   await assert.rejects(consumeResponse(stream([text,'data: {"type":"error","code":"failed"}\n\n'])),/FAILED/);
@@ -73,6 +74,11 @@ test('HTTP 400 GPT expose code, type et champ autorisés sans le message brut',a
   await assert.rejects(make({code:'unlisted-sensitive-detail',param:'private@example.com'}).response({}),e=>e.message==='CHATGPT_HTTP_400_CODE_UNLISTED_SENSITIVE_DETAIL'&&!e.message.includes('private'));
   const detailAuth=new ChatGPT(vault,()=>{},async()=>new Response(JSON.stringify({detail:'unsupported structured output for this request'}),{status:400,headers:{'x-request-id':'req_abc123'}}));
   await assert.rejects(detailAuth.response({}),e=>e.message==='CHATGPT_HTTP_400_DETAIL_SCHEMA_REQUEST_REQ_ABC123');
+});
+test('Compatibilité ChatGPT: retire le mode JSON seulement si text.format est explicitement refusé',async()=>{
+  const vault={get:()=>({accessToken:'fixture-token',scopes:['chatgpt.tokens.use.direct'],expiresAt:Date.now()+3600000})};let calls=0,first,second;
+  const auth=new ChatGPT(vault,()=>{},async(_url,options)=>{calls++;const body=JSON.parse(options.body);if(calls===1){first=body;return new Response(JSON.stringify({error:{code:'unsupported_parameter',param:'text.format'}}),{status:400});}second=body;return new Response('data: '+JSON.stringify({type:'response.completed',response:{status:'completed',output:[],usage:{total_tokens:1}}})+'\n\n');});
+  const result=await auth.response({model:'gpt-fixture',input:[],text:{format:{type:'json_object'}}});assert.equal(result.status,'completed');assert.equal(calls,2);assert.equal(first.text.format.type,'json_object');assert.ok(!('text' in second));
 });
 test('Erreur de transport et flux GPT conservent un diagnostic sûr',async()=>{
   const vault={get:()=>({accessToken:'fixture-token',scopes:['chatgpt.tokens.use.direct'],expiresAt:Date.now()+3600000})};

@@ -13,7 +13,7 @@ export function decisionRequest(candidates, config, model) {
   const schema = { type: 'object', additionalProperties: false, required: ['decisions'], properties: { decisions: { type: 'array', items: { type:'object', additionalProperties:false, required:['id','action','confidence','reason'], properties: {
     id:{type:'string'}, action:{type:'string',enum:['LONG','SHORT','CLOSE','WAIT']}, confidence:{type:'number'}, reason:{type:'string'} } } } } };
   const payload = candidates.map(({id, snapshot:s, source, signal, activeDirections}) => ({ id, market:s.market, symbol:s.symbol, features:s.features, spreadBps:s.spreadBps, fundingRate:s.fundingRate, source, activeDirections:activeDirections??[], signal: signal ? { leader:signal.leader, action:signal.action, stats:signal.stats } : null }));
-  return { model, store:false, instructions:SYSTEM, input:JSON.stringify(payload), max_output_tokens:config.maxOutputTokens, text:{ format:{type:'json_schema',name:'trade_decisions',strict:true,schema} } };
+  return { model, store:false, instructions:SYSTEM, input:JSON.stringify(payload), text:{ format:{type:'json_schema',name:'trade_decisions',strict:true,schema} } };
 }
 export function parseDecisionResult(r, candidates) {
   if (r.status !== 'completed') throw new Error('Réponse GPT non terminée');

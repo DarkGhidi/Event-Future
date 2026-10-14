@@ -68,7 +68,7 @@ export async function loopback({ state, expectedClientId = null, timeoutMs = 600
   return { result, redirectUri, cancel };
 }
 export async function consumeResponse(stream) {
-  let buffer = '', completed = null; const decode = new TextDecoder();
+  let buffer = '', completed = null, outputText = ''; const decode = new TextDecoder();
   const consume = block => {
     const text = block.split('\n').filter(l => l.startsWith('data:')).map(l => l.slice(5).trimStart()).join('\n');
     if (!text || text === '[DONE]') return;
@@ -78,8 +78,13 @@ export async function consumeResponse(stream) {
       if (['subscription_sharing_usage_limit_exceeded', 'subscription_sharing_usage_unavailable'].includes(code)) throw new Error('CHATGPT_USAGE_LIMIT');
       throw new Error('CHATGPT_RESPONSE_FAILED');
     }
+    if (event.type === 'response.output_text.delta' && typeof event.delta === 'string') outputText += event.delta;
     if (event.type === 'response.completed') {
-      if (event.response?.status !== 'completed') throw new Error('CHATGPT_RESPONSE_FAILED'); completed = event.response;
+      if (event.response?.status !== 'completed') throw new Error('CHATGPT_RESPONSE_FAILED');
+      const response = event.response;
+      const hasText = typeof response.output_text === 'string' && response.output_text.length > 0 ||
+        (response.output ?? []).some(item => (item.content ?? []).some(part => ['output_text','text','refusal'].includes(part.type)));
+      completed = !hasText && outputText ? { ...response, output_text: outputText } : response;
     }
   };
   try {
@@ -163,13 +168,19 @@ export class ChatGPT {
   }
   async response(body) {
     const token = await this.accessToken();
+    const send = async payload => this.request(RESOURCE + '/responses', { method: 'POST', headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify({ ...payload, store: false, stream: true }), signal: AbortSignal.timeout(120000) });
     let r;
-    try {
-      r = await this.request(RESOURCE + '/responses', { method: 'POST', headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify({ ...body, store: false, stream: true }), signal: AbortSignal.timeout(120000) });
-    } catch (e) {
-      throw new Error(e?.name === 'TimeoutError' || e?.name === 'AbortError' ? 'CHATGPT_NETWORK_TIMEOUT' : 'CHATGPT_NETWORK_ERROR');
+    try { r = await send(body); }
+    catch (e) { throw new Error(e?.name === 'TimeoutError' || e?.name === 'AbortError' ? 'CHATGPT_NETWORK_TIMEOUT' : 'CHATGPT_NETWORK_ERROR'); }
+    if (!r.ok) {
+      const diagnostic = await responseError(r);
+      const formatUnsupported = body.text?.format?.type === 'json_object' && diagnostic.includes('CHATGPT_REQUEST_PARAMETER') && diagnostic.includes('PARAM_TEXT_FORMAT');
+      if (!formatUnsupported) throw new Error(diagnostic);
+      const { text: _unsupportedFormat, ...compatible } = body;
+      try { r = await send(compatible); }
+      catch (e) { throw new Error(e?.name === 'TimeoutError' || e?.name === 'AbortError' ? 'CHATGPT_NETWORK_TIMEOUT' : 'CHATGPT_NETWORK_ERROR'); }
+      if (!r.ok) throw new Error(await responseError(r));
     }
-    if (!r.ok) throw new Error(await responseError(r));
     return consumeResponse(r.body);
   }
   disconnectLocal() {

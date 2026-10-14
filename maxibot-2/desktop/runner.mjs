@@ -68,11 +68,9 @@ export class Runner {
     if (s.api.day !== dayKey(tick)) s.api = {day:dayKey(tick),calls:0,tokens:0};
     if (candidates.length && s.status === 'running' && !this.paused && this.active) {
       for (const item of candidates) item.activeDirections = Object.values(s.lanes).filter(l=>l.source===item.source&&l.market===item.snapshot.market).flatMap(l=>l.positions.filter(p=>p.snapshotId===item.snapshot.id).map(p=>({profile:l.profile.name,action:p.side===1?'LONG':'SHORT',leader:p.leader})));
-      if (s.api.calls>=c.maxCallsPerDay) events.push({kind:'gpt_budget_skip',time:tick,data:{reason:'DAILY_CALL_LIMIT'}});
-      else {
-        s.api.calls++;
-        this.store.save(s,events.splice(0));
-        try {
+      s.api.calls++;
+      this.store.save(s,events.splice(0));
+      try {
           const out = parseDecisionResult(await this.chatgpt.response(decisionRequest(candidates,c,c.chatGPTModel)), candidates);
           s.api.tokens+=Math.max(0,out.usage.total_tokens);
           events.push({kind:'gpt',time:Date.now(),data:{decisions:out.decisions,usage:out.usage,model:c.chatGPTModel}});
@@ -88,12 +86,11 @@ export class Runner {
             else if(item.signal&&now-item.signal.time>c.maxSignalAgeSeconds*1000) events.push({kind:'signal_skip',data:{id:item.signal.id,reason:'expired_during_gpt'}});
             else applyDecision(s,item,d,c,now,quotes,events);
           }
-        } catch(e) {
+      } catch(e) {
           const reason=e.message?.match(/^[A-Z0-9_]+$/)?e.message:'GPT_RESPONSE_INVALID';
           events.push({kind:'gpt_skip',time:Date.now(),data:{reason}});
           this.lastError=reason;
           if (['CHATGPT_USAGE_LIMIT','CHATGPT_RECONNECT','CHATGPT_PLAN_DISABLED'].includes(reason)) this.paused=true;
-        }
       }
     }
     s.updatedAt=Date.now();

@@ -119,11 +119,10 @@ export class AutonomousRunner {
       if(this.state.training.coveredMs>=this.trainingRequired&&!this.state.training.completedAt){this.state.training.completedAt=now;log(s,'mode','Sept jours de simulation couverts. La simulation en données MEXC en direct continue ; aucun ordre réel ne sera envoyé automatiquement.');this.save();}}
     const generation=this.generation;if(this.clock()-this.state.lastDecision<this.config.decisionSeconds*1000&&!candidates.some(c=>c.signal&&!c.position))return;
     this.state.lastDecision=this.clock();const day=new Date(this.clock()).toISOString().slice(0,10);if(this.state.api.day!==day)this.state.api={day,calls:0,tokens:0};
-    if(this.state.api.calls>=this.config.maxCallsPerDay){log(s,'skip',`Plafond quotidien d’appels GPT atteint (${this.state.api.calls}/${this.config.maxCallsPerDay}) ; les sorties simulées continuent.`);this.save();return;}
     const a=s.mode==='paper'?{spot:available(s),futures:available(s)}:await this.broker.accounts();
     this.state.api.calls++;this.save();
     let result;try{
-      const response=await this.chatgpt.response(planRequest(this.state.model,candidates,{available:available(s),closed:s.closed,events:s.events.slice(0,30)},{spot:a.spot,futures:a.futures},this.config));
+      const response=await this.chatgpt.response(planRequest(this.state.model,candidates,{available:available(s),closed:s.closed,events:s.events.slice(0,30)},{spot:a.spot,futures:a.futures}));
       if(Number.isFinite(response?.usage?.total_tokens)){this.state.api.tokens+=response.usage.total_tokens;this.save();}
       result=parsePlan(response,candidates);
     }catch(e){
@@ -183,6 +182,6 @@ export class AutonomousRunner {
     const eq=s.cash+s.positions.reduce((n,p)=>n+(p.plan.market==='spot'?p.quantity*p.mark:p.principal+p.unrealized),0),wins=s.closed.filter(t=>t.net>0).length;
     return {status:this.state.enabled?'running':'off',active:this.active,enabled:this.state.enabled,starting:this.starting===true,busy:this.busy,paused:!this.state.enabled,mode:s.mode,liveEnabled:s.mode==='live',startedAt:s.startedAt,updatedAt:s.updatedAt,phase:s.mode==='paper'?'observation':'live',progress:Math.min(1,this.state.training.coveredMs/this.trainingRequired),lastError:this.lastError||s.reconcileFault,model:this.state.model,allocated:s.allocated,free:available(s),reserved:reserved(s),pending:s.orders.filter(o=>!o.settled).length,copyConnected:fomo.connected||!!this.sourceFile,externalCopyConfigured:!!this.sourceFile,fomo,
       selected:{id:'bot',initial:s.allocated,equity:eq,pnl:eq-s.allocated,pnlPct:(eq/s.allocated-1)*100,drawdown:s.drawdown,closed:s.closed.length,wins,losses:s.closed.length-wins,winRate:s.closed.length?wins/s.closed.length:0},
-      positions:s.positions.map(p=>({id:p.id,asset:p.plan.asset,market:p.plan.market,side:p.plan.side,entry:p.entry,mark:p.mark,pnl:p.unrealized,stop:p.plan.stop,take:p.plan.take,leverage:p.plan.leverage,source:p.plan.source,margin:p.principal,protection:s.mode==='paper'?'Simulation · sorties fictives':p.dust?'Reste sous le minimum MEXC':p.plan.market==='spot'?'PC allumé nécessaire':p.protected?'MEXC · isolée':'Vérification MEXC'})),trades:s.closed.slice(-50),history:s.history,events:s.events.slice(0,60),lanes:[],api:{calls:this.state.api.calls,tokens:this.state.api.tokens,maxCalls:this.config.maxCallsPerDay},monitoring:this.hasExposure,trainingDecisions:this.state.training.decisions};
+      positions:s.positions.map(p=>({id:p.id,asset:p.plan.asset,market:p.plan.market,side:p.plan.side,entry:p.entry,mark:p.mark,pnl:p.unrealized,stop:p.plan.stop,take:p.plan.take,leverage:p.plan.leverage,source:p.plan.source,margin:p.principal,protection:s.mode==='paper'?'Simulation · sorties fictives':p.dust?'Reste sous le minimum MEXC':p.plan.market==='spot'?'PC allumé nécessaire':p.protected?'MEXC · isolée':'Vérification MEXC'})),trades:s.closed.slice(-50),history:s.history,events:s.events.slice(0,60),lanes:[],api:{calls:this.state.api.calls,tokens:this.state.api.tokens},monitoring:this.hasExposure,trainingDecisions:this.state.training.decisions};
   }
 }

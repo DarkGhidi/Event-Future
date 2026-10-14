@@ -1,4 +1,4 @@
-# Maxibot 2.0 — Windows, version 2.1.8 bêta
+# Maxibot 2.0 — Windows, version 2.1.9 bêta
 
 Simulation de trading d'une semaine sur les marchés MEXC en direct. GPT choisit
 automatiquement les opportunités, les marchés, la direction, la taille, les
@@ -7,8 +7,8 @@ fictifs : cette version n'envoie aucun ordre réel, y compris après la semaine.
 
 ## Installer
 
-Télécharger Maxibot-Setup-2.1.8-x64.exe ou Maxibot-Portable-2.1.8-x64.exe
-dans la release maxibot-v2.1.8-beta.1 de DarkGhidi/Event-Future.
+Télécharger Maxibot-Setup-2.1.9-x64.exe ou Maxibot-Portable-2.1.9-x64.exe
+dans la release maxibot-v2.1.9-beta.1 de DarkGhidi/Event-Future.
 Windows x64, dépendances incluses. Binaires non signés ; SHA256 joints.
 Les versions 2.0.0 sont des versions antérieures de simulation seulement.
 
@@ -40,9 +40,10 @@ retrait n'est envoyé. N'activez pas les permissions d'écriture sur votre clé.
 - Les prix, bougies d'une minute, volumes et données de funding viennent des
   endpoints publics MEXC. Les ordres de la simulation utilisent les cours
   d'achat/vente disponibles ; les frais sont estimés dans le portefeuille fictif.
-- Maxibot n'impose plus de plafond quotidien de tokens. La version conserve un
-  maximum de 144 appels GPT par jour. Les limites de compte et d'accès ChatGPT
-  restent appliquées par ChatGPT ; Maxibot ne peut pas les retirer.
+- Maxibot n'ajoute aucun plafond quotidien d'appels ni de tokens de sortie.
+  ChatGPT peut toutefois appliquer ses propres limites de compte ; Maxibot ne
+  peut pas les retirer. En cas de limite ChatGPT, le moteur arrête les nouvelles
+  décisions et garde le suivi local des positions.
 - Les données d'entraînement ne sont pas une promesse de performance future.
 - Registre de simulation SQLite local ; les trades simulés et les frais estimés
   sont enregistrés pour examiner les décisions de GPT pendant la semaine.

@@ -1,3 +1,20 @@
+# Maxibot 2.0 — Windows v2.1.9 bêta 1
+
+- Demande à GPT le mode JSON de l’API Responses et récupère aussi les réponses
+  texte présentes dans `output_text` ou les deltas de flux terminés.
+- Supprime les plafonds internes quotidiens d’appels GPT et de tokens de sortie.
+  Les limites éventuelles du compte ChatGPT restent appliquées par ChatGPT.
+- La simulation d’une semaine conserve les cotations MEXC en direct et reste
+  fictive ; aucun ordre réel n’est envoyé.
+
+Tests de format GPT, reprise des deltas de flux, absence de plafond Maxibot,
+suite complète, compilation et test de démarrage Windows par la CI.
+Aucun ordre réel utilisé pour les tests.
+
+Installateur et portable x64, non signés ; empreintes dans SHA256SUMS.txt.
+
+---
+
 # Maxibot 2.0 — Windows v2.1.8 bêta 1
 
 - Retire le plafond quotidien de tokens propre à Maxibot ; garde le plafond

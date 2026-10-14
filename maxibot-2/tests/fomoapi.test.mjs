@@ -53,7 +53,7 @@ test('Classements actualisés au plus toutes les six heures; l’échec de créd
 test('Les informations MEXC requièrent uniquement SPOT_WITHDRAW_READ; GET sans retrait ni transfert',async()=>{
   const b=new LiveMexc(()=>({spotKey:'fixture'})),calls=[];b.keyInfo=async()=>['SPOT_WITHDRAW_READ'];b.signed=async(...args)=>{calls.push(args);return [{coin:'TOKEN',networkList:[]}];};await b.currencyInfo();await b.currencyInfo();assert.deepEqual(calls,[['spot','/api/v3/capital/config/getall']]);b.currencyCache=null;b.keyInfo=async()=>['SPOT_DEAL_WRITE'];await assert.rejects(b.currencyInfo(),/CURRENCY_READ_PERMISSION/);assert.equal(calls.length,1);
 });
-const cfg={decisionSeconds:600,maxCallsPerDay:100,maxOutputTokens:3000,maxDrawdownPct:.9};
+const cfg={decisionSeconds:600,maxDrawdownPct:.9};
 function fixture(){
   let now=Date.now(),calls=0;const dir=mkdtempSync(join(tmpdir(),'maxibot-fomo-'));
   const fomo=new FomoApi('fixture-key',{clock:()=>now});fomo.status='connected';fomo.refreshStats=async()=>{};fomo.refreshAt=now;fomo.setBoard('7d',board);
