@@ -5,7 +5,7 @@
   "symbols": ["BTC", "ETH", "SOL", "XRP", "DOGE"],
   "markets": ["spot", "futures"],
   "pollSeconds": 60,
-  "decisionSeconds": 600,
+  "decisionSeconds": 120,
   "virtualCapitalUSDT": 1000,
   "ticketUSDT": 50,
   "maxPositions": 5,
@@ -17,7 +17,7 @@
   "maxHoldMinutes": 60,
   "cooldownMinutes": 10,
   "maxDailyLossPct": 0.03,
-  "maxDrawdownPct": 0.10,
+  "maxDrawdownPct": 0.50,
   "profiles": [
     {"name": "exploration", "minConfidence": 0.55},
     {"name": "balanced", "minConfidence": 0.65},

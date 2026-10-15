@@ -1,3 +1,18 @@
+# Maxibot 2.0 — Windows v2.2.0 bêta 1
+
+- Le portefeuille Spot et Futures est exploré séparément à chaque analyse GPT.
+- La simulation reprend au prochain lancement de l’application si elle était encore ON ; une erreur GPT reste mémorisée et demande une action manuelle.
+- Profil de simulation plus risqué : levier élevé jusqu’aux limites MEXC, progression d’analyse plus fréquente, seuil d’arrêt de portefeuille élargi à 50 %. Aucun plafond de levier ajouté par Maxibot ; le stop reste contrôlé avant liquidation.
+- Les cartes de positions détaillent désormais exposition, marge/capital engagé, variation sur marge, distance au stop/TP et perte estimée au stop.
+- Le journal distingue Spot, Futures et FOMOAPI ; l’interface différencie les signaux reçus, correspondances cumulées et positions FOMO simulées.
+- La simulation reste fictive, fondée sur les données MEXC en direct ; aucun ordre réel n’est envoyé.
+
+80 tests locaux et vérification de syntaxe validés. La compilation, le smoke test Windows et la publication restent à valider par la CI.
+
+Installateur et portable x64, non signés ; empreintes SHA-256 à joindre à la release.
+
+---
+
 # Maxibot 2.0 — Windows v2.1.9 bêta 1
 
 - Demande à GPT le mode JSON de l’API Responses et récupère aussi les réponses

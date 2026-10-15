@@ -114,7 +114,7 @@ try {
   win.webContents.setWindowOpenHandler(()=>({action:'deny'}));
   win.webContents.on('will-navigate',(e,url)=>{if(url!=='maxibot://app/index.html')e.preventDefault();});
   win.on('close',async e=>{
-    if(!smoke&&!quitting&&runner.active){e.preventDefault();const answer=await dialog.showMessageBox(win,{type:'question',buttons:['Continuer le suivi','Arrêter et quitter'],defaultId:0,cancelId:0,message:'Des positions ou des ordres peuvent encore être actifs.',detail:'Fermer le programme arrête le suivi et les sorties locales Spot. Les protections Futures confirmées sur MEXC restent sur l’exchange. Revenez au tableau de bord pour suivre ou clôturer vos positions.'});if(answer.response===1){quitting=true;runner.stop();app.quit();}}
+    if(!smoke&&!quitting&&runner.active){e.preventDefault();const answer=await dialog.showMessageBox(win,{type:'question',buttons:['Continuer le suivi','Arrêter et quitter'],defaultId:0,cancelId:0,message:'Des positions ou des ordres peuvent encore être actifs.',detail:'Fermer le programme arrête le suivi et les sorties locales Spot. Les protections Futures confirmées sur MEXC restent sur l’exchange. Revenez au tableau de bord pour suivre ou clôturer vos positions.'});if(answer.response===1){quitting=true;runner.off();app.quit();}}
   });
   powerMonitor.on('resume',()=>{if(runner.active&&!runner.busy){clearTimeout(runner.timer);runner.cycle();}});
   stage('window-created');await win.loadURL('maxibot://app/index.html');stage('window-loaded');
@@ -138,7 +138,7 @@ try {
 app.on('second-instance',()=>{if(win){if(win.isMinimized())win.restore();win.focus();}});
 app.on('window-all-closed',()=>app.quit());
 app.on('before-quit',e=>{
-  quitting=true;runner?.stop();fomo?.close();chatgpt?.cancelSignIn?.();stopBlocker();
+  quitting=true;runner?.stop({retainSimulation:true});fomo?.close();chatgpt?.cancelSignIn?.();stopBlocker();
   if(runner?.busy){e.preventDefault();if(!waitingForQuit){waitingForQuit=true;const t=setInterval(()=>{if(!runner.busy){clearInterval(t);app.quit();}},100);}return;}
   runner?.close();
 });
